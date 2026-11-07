@@ -17,11 +17,26 @@ The add-on re-reads the file whenever it changes and reports problems — an ent
 floor — in its log (`ha apps logs df84f1fd_atrium` for the Store install; look for lines starting `mapping:`)
 and on its set-up page.
 
-You need either a shell on the Home Assistant machine or network access to it, plus a token:
+## Where Atrium is
 
-- a **long-lived access token**: Home Assistant → the user's profile (bottom left) → Security → Long-lived access
-  tokens → Create; put it in `HA_TOKEN`, never in the file or the repository;
-- or, inside an add-on, `SUPERVISOR_TOKEN` is already set and the API is `http://supervisor/core`.
+Atrium is an MCP server and an HTTP API; use whichever you can reach. Its tools are this skill (`atrium_skill`),
+the contract (`atrium_contract`), the house (`atrium_home`, filter by domain or area), a draft (`atrium_draft`,
+the script below run inside the add-on), the current file (`atrium_mapping_get`), saving with checks
+(`atrium_mapping_put`) and the status (`atrium_layout_status`). With it, drafting and delivering are tool calls;
+`skills/atrium-mapping/draft.py` is only for when you cannot reach Atrium at all.
+
+- **From inside Home Assistant** (you are the Claude Code app, or another app the owner listed under Atrium's
+  *Apps that may write the layout*): Atrium is at `http://df84f1fd-atrium:8099` on the apps' network — the add-on
+  slug with a dash. No token: Atrium knows your app by its address. `claude mcp add --transport http atrium
+  http://df84f1fd-atrium:8099/mcp`, or plain HTTP: `curl -sS -X PUT --data-binary @atrium.yaml
+  http://df84f1fd-atrium:8099/atrium/mapping` (answers `{"rooms": N, "problems": [...], "path": ...}`), and
+  `GET` the same path to read it back. A 403 means the owner has not listed your app.
+- **From a device on the owner's tailnet** (your Tailscale login is the owner's or an admin's): the same at
+  `https://atrium.<tailnet>.ts.net` — `claude mcp add --transport http atrium https://atrium.<tailnet>.ts.net/mcp`.
+- **Neither**: run `draft.py` against Home Assistant with a long-lived access token (below), review, and give the
+  owner the file to put at `/addon_configs/df84f1fd_atrium/atrium.yaml` (the Terminal app sees that path; the
+  add-on re-reads it on change) or to paste into **Edit** on Atrium's set-up page. Never ask for or store a token
+  to reach Atrium's ingress for the owner; never make a session for the owner's user with the Supervisor token.
 
 ## 1. Draft
 
@@ -70,25 +85,9 @@ in a `ha` shell or the Developer tools page shows the same). Check, in this orde
 
 ## 3. Deliver and verify
 
-Give the file to the add-on: `PUT /atrium/mapping` with the YAML as the body. It is checked first (a bad file is
-refused with the reason and nothing changes), saved, rendered, and the answer lists what Home Assistant does not
-have: `{"rooms": 26, "problems": [...], "path": "/addon_configs/df84f1fd_atrium/atrium.yaml"}`. `GET` reads it back.
-
-- On Atrium's set-up page in Home Assistant's sidebar (an administrator, signed in to Home Assistant): the
-  **Upload atrium.yaml** button on the Layout card. Hand the owner the file and that is one click for them.
-- On the tailnet, from a device whose Tailscale login is the owner's or an admin's (no token needed):
-  `curl -sS -X PUT --data-binary @atrium.yaml https://atrium.<tailnet>.ts.net/atrium/mapping`
-- From the Home Assistant machine (no Tailscale there), through Home Assistant's ingress — only if you hold an
-  administrator's long-lived token already; never ask for one or store one to do this, and never make a session
-  for a user with the Supervisor token (that impersonates them). Otherwise use the upload button above.
-  ```sh
-  T=…                                                            # the token
-  S=$(curl -sS -X POST -H "Authorization: Bearer $T" http://homeassistant:8123/api/hassio/ingress/session | python3 -c 'import json,sys;print(json.load(sys.stdin)["session"])')
-  P=$(curl -sS -H "Authorization: Bearer $T" http://homeassistant:8123/api/hassio/addons/df84f1fd_atrium/info | python3 -c 'import json,sys;print(json.load(sys.stdin)["data"]["ingress_url"])')
-  curl -sS -X PUT --data-binary @atrium.yaml -b "ingress_session=$S" "http://homeassistant:8123${P}atrium/mapping"
-  ```
-- Or put the file in place yourself: `/addon_configs/df84f1fd_atrium/atrium.yaml` (the Terminal add-on sees that
-  path); the add-on re-reads it on change.
+Hand the file to Atrium yourself: `atrium_mapping_put` (MCP) or `PUT /atrium/mapping` (HTTP), from wherever you
+reached it above. It is checked first (a bad file is refused with the reason and nothing changes), saved,
+rendered, and the answer lists what Home Assistant does not have. The owner does nothing.
 
 Then:
 

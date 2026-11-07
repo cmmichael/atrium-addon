@@ -21,6 +21,9 @@ func (g *Gateway) mayConfigure(id Identity) bool {
 	if id.Login == "" || id.Tagged {
 		return false
 	}
+	if id.Addon {
+		return true // listed by the owner for exactly this
+	}
 	if id.HomeAssistant {
 		return g.isHAAdmin(id.UserID)
 	}
@@ -246,36 +249,18 @@ func (g *Gateway) serveMapping(w http.ResponseWriter, r *http.Request, id Identi
 			http.Error(w, "a layout is at most 1 MiB", http.StatusRequestEntityTooLarge)
 			return
 		}
-		if _, err := house.ParseMapping(data); err != nil {
-			http.Error(w, "refused: "+err.Error(), http.StatusBadRequest)
-			return
+		text, failed, _ := g.putMapping(r.Context(), id, data)
+		switch {
+		case failed && strings.HasPrefix(text, "Refused"):
+			http.Error(w, strings.ToLower(text[:1])+text[1:], http.StatusBadRequest)
+		case failed && strings.HasPrefix(text, "Saved"):
+			http.Error(w, text, http.StatusBadGateway)
+		case failed:
+			http.Error(w, strings.ToLower(text[:1])+text[1:], http.StatusInternalServerError)
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(text))
 		}
-		if g.MappingPath == "" {
-			http.Error(w, "this add-on has nowhere to keep a layout", http.StatusInternalServerError)
-			return
-		}
-		tmp := g.MappingPath + ".tmp"
-		err = os.WriteFile(tmp, data, 0o644)
-		if err == nil {
-			err = os.Rename(tmp, g.MappingPath)
-		}
-		if err != nil {
-			os.Remove(tmp)
-			http.Error(w, "could not save: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		g.readMapping()
-		log.Printf("layout written by %s (%s)", id.Login, id.Device)
-		// Render now, so the answer carries what the new layout could not use.
-		if _, err := g.houseJSON(r.Context()); err != nil {
-			http.Error(w, "saved, but could not render it: "+err.Error(), http.StatusBadGateway)
-			return
-		}
-		g.mu.Lock()
-		out := map[string]any{"rooms": len(g.mapping.Rooms), "problems": append([]string{}, g.problems...), "path": g.mappingHostPath()}
-		g.mu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(out)
 	default:
 		w.Header().Set("Allow", "GET, PUT")
 		http.Error(w, "GET or PUT", http.StatusMethodNotAllowed)
