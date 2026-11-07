@@ -40,7 +40,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.5.1"
+const version = "0.5.2"
 
 // Person is a Tailscale login that may use the gateway, optionally as a Home Assistant user of its own.
 type Person struct {
@@ -308,6 +308,8 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		g.serveHouse(w, r)
 	case r.URL.Path == "/atrium/config":
 		g.serveConfig(w, r, id)
+	case r.URL.Path == "/atrium/mapping":
+		g.serveMapping(w, r, id)
 	case r.URL.Path == "/api/websocket":
 		log.Printf("%s (%s) connected", id.Login, id.Device)
 		g.serveWebSocket(w, r, id, up)

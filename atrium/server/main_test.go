@@ -288,6 +288,48 @@ func TestTheHouseIsBuiltHereAndTheConfigurationApplies(t *testing.T) {
 	if _, setup := get(t, g, "/atrium/setup"); fmt.Sprint(setup["layout"].(map[string]any)["problems"]) != "[room den: Home Assistant has no light.nowhere]" {
 		t.Errorf("setup should report the missing entity: %v", setup["layout"])
 	}
+	// The layout can be delivered to the add-on itself: checked, saved, rendered, and what it lacks is reported.
+	put := func(body string, header ...string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("PUT", "/atrium/mapping", strings.NewReader(body))
+		for i := 0; i+1 < len(header); i += 2 {
+			r.Header.Set(header[i], header[i+1])
+		}
+		w := httptest.NewRecorder()
+		g.ServeHTTP(w, r)
+		return w
+	}
+	if w := put("rooms: [\n"); w.Code != 400 || !strings.Contains(w.Body.String(), "refused") {
+		t.Errorf("a broken layout was not refused: %d %s", w.Code, w.Body.String())
+	}
+	w := put("rooms:\n  - id: den\n    entities: [light.den_lamp, light.elsewhere]\n")
+	var answer map[string]any
+	json.Unmarshal(w.Body.Bytes(), &answer)
+	if w.Code != 200 || answer["rooms"] != 1.0 || fmt.Sprint(answer["problems"]) != "[room den: Home Assistant has no light.elsewhere]" {
+		t.Errorf("PUT mapping: %d %v", w.Code, answer)
+	}
+	if saved, _ := os.ReadFile(g.MappingPath); !strings.Contains(string(saved), "light.elsewhere") {
+		t.Error("the layout was not saved")
+	}
+	if code, body := get(t, g, "/atrium/setup"); code != 200 || fmt.Sprint(body["layout"].(map[string]any)["problems"]) != "[room den: Home Assistant has no light.elsewhere]" {
+		t.Errorf("setup after PUT: %v", body["layout"])
+	}
+	r := httptest.NewRequest("GET", "/atrium/mapping", nil)
+	w = httptest.NewRecorder()
+	g.ServeHTTP(w, r)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "light.elsewhere") {
+		t.Errorf("GET mapping: %d", w.Code)
+	}
+	if w := put("rooms: []\n", "Origin", "https://evil.example"); w.Code != 403 {
+		t.Errorf("another site's page wrote the layout: %d", w.Code)
+	}
+	stranger := gateway(ha, Identity{Login: "guest@example.com"})
+	stranger.MappingPath = g.MappingPath
+	r = httptest.NewRequest("PUT", "/atrium/mapping", strings.NewReader("rooms: []\n"))
+	w = httptest.NewRecorder()
+	stranger.ServeHTTP(w, r)
+	if w.Code != 403 {
+		t.Errorf("an allowed non-owner changed the layout: %d", w.Code)
+	}
 	// A broken file is refused and the last good layout stays.
 	os.WriteFile(g.MappingPath, []byte("rooms: [\n"), 0o644)
 	os.Chtimes(g.MappingPath, time.Now(), time.Now().Add(time.Second))
@@ -299,8 +341,8 @@ func TestTheHouseIsBuiltHereAndTheConfigurationApplies(t *testing.T) {
 		t.Errorf("setup should show the file's error: %v", setup["layout"])
 	}
 
-	r := httptest.NewRequest("PUT", "/atrium/config", strings.NewReader(`{"rooms":{"den":{"name":"Study"}},"entities":{"light.den_lamp":{"name":"Reading lamp"}}}`))
-	w := httptest.NewRecorder()
+	r = httptest.NewRequest("PUT", "/atrium/config", strings.NewReader(`{"rooms":{"den":{"name":"Study"}},"entities":{"light.den_lamp":{"name":"Reading lamp"}}}`))
+	w = httptest.NewRecorder()
 	g.ServeHTTP(w, r)
 	if w.Code != 204 {
 		t.Fatalf("put config: %d %s", w.Code, w.Body)

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -216,6 +217,64 @@ func (g *Gateway) serveHouse(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveConfig answers GET and PUT /atrium/config: the owner's overrides.
+// serveMapping reads and writes atrium.yaml itself, so whoever makes the layout (the atrium-mapping skill, run
+// by a Claude on the tailnet or on the Home Assistant machine) can deliver it here, with no file access to
+// anything. A PUT is checked before it is written; the answer says what the new layout could not use.
+func (g *Gateway) serveMapping(w http.ResponseWriter, r *http.Request, id Identity) {
+	switch r.Method {
+	case "GET":
+		data, err := os.ReadFile(g.MappingPath)
+		if err != nil {
+			http.Error(w, "there is no layout yet", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Write(data)
+	case "PUT":
+		if !g.mayConfigure(id) {
+			http.Error(w, "only the owner and administrators may change the layout", http.StatusForbidden)
+			return
+		}
+		data, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if _, err := house.ParseMapping(data); err != nil {
+			http.Error(w, "refused: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if g.MappingPath == "" {
+			http.Error(w, "this add-on has nowhere to keep a layout", http.StatusInternalServerError)
+			return
+		}
+		tmp := g.MappingPath + ".tmp"
+		if err := os.WriteFile(tmp, data, 0o644); err == nil {
+			err = os.Rename(tmp, g.MappingPath)
+		}
+		if err != nil {
+			http.Error(w, "could not save: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		g.readMapping()
+		log.Printf("layout written by %s (%s)", id.Login, id.Device)
+		// Render now, so the answer carries what the new layout could not use.
+		if _, err := g.houseJSON(r.Context()); err != nil {
+			http.Error(w, "saved, but could not render it: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		g.mu.Lock()
+		out := map[string]any{"rooms": len(g.mapping.Rooms), "problems": append([]string{}, g.problems...), "path": g.mappingHostPath()}
+		g.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out)
+	default:
+		w.Header().Set("Allow", "GET, PUT")
+		http.Error(w, "GET or PUT", http.StatusMethodNotAllowed)
+	}
+}
+
 func (g *Gateway) serveConfig(w http.ResponseWriter, r *http.Request, id Identity) {
 	switch r.Method {
 	case "GET":

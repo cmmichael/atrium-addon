@@ -61,9 +61,9 @@ security:                         # the Security screen; absent = no Security ta
   hazards: [binary_sensor.smoke_hall, binary_sensor.leak_laundry]  # smoke, gas, CO, leak sensors
 
 energy:                           # the Energy screen; absent = no Energy tab
-  solar_power: sensor.pv_power                   # W
-  load_power: [sensor.house_power]               # W; several are summed
-  solar_today: sensor.pv_energy_today            # kWh
+  solar_power: sensor.pv_power                   # W or kW: the apps read the sensor's unit
+  load_power: [sensor.house_power]               # W or kW; several are summed
+  solar_today: sensor.pv_energy_today            # kWh, Wh or MWh, by the sensor's unit
   used_today: sensor.house_energy_today          # kWh
   consumers: [sensor.oven_power, sensor.ev_charger_power]   # W, the "Using now" list
   water_flow: sensor.water_flow                  # any unit

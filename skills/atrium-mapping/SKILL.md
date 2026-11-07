@@ -54,9 +54,10 @@ in a `ha` shell or the Developer tools page shows the same). Check, in this orde
   speaker, phones, or Music Assistant copies of players that already exist. One entity per physical speaker.
 - **The doorbell.** `security.doorbells` lists cameras; make sure it is the camera at the door, not a second
   channel of it, and that `camera_for` maps each entry to the camera that sees it.
-- **Energy.** Find the house's solar, grid and load sensors and their units. `solar_power` is W, positive when
-  producing; `load_power` is W, positive when consuming (several entries are summed, so list the mains legs or the
-  one house total, not both); `solar_today` and `used_today` are kWh. `consumers` is the "Using now" list: keep
+- **Energy.** Find the house's solar, grid and load sensors. `solar_power` is positive when producing;
+  `load_power` positive when consuming (several entries are summed, so list the mains legs or the one house
+  total, not both); `solar_today` and `used_today` are the day's totals. Units are read from each sensor (W or
+  kW; kWh, Wh or MWh), so pick the right quantity, not the right unit. `consumers` is the "Using now" list: keep
   the circuits worth watching (oven, EV, pool pump), drop the rest. If the house has water metering, fill in
   `water_flow` and `water_today`; otherwise delete those lines.
 - **People.** `home.people` should be the household, not every `person.*` (guests, test users).
@@ -67,10 +68,26 @@ in a `ha` shell or the Developer tools page shows the same). Check, in this orde
 - **Entries and hazards.** Door, window and gate contacts in `entries`; smoke, gas, CO and leak sensors in
   `hazards`. Drop anything that is a car.
 
-## 3. Write and verify
+## 3. Deliver and verify
 
-Write the result to `/addon_configs/df84f1fd_atrium/atrium.yaml` (with `-o`, or copy the reviewed file). Make the
-folder if it is not there yet. Then:
+Give the file to the add-on: `PUT /atrium/mapping` with the YAML as the body. It is checked first (a bad file is
+refused with the reason and nothing changes), saved, rendered, and the answer lists what Home Assistant does not
+have: `{"rooms": 26, "problems": [...], "path": "/addon_configs/df84f1fd_atrium/atrium.yaml"}`. `GET` reads it back.
+
+- On the tailnet, from a device whose Tailscale login is the owner's or an admin's (no token needed):
+  `curl -sS -X PUT --data-binary @atrium.yaml https://atrium.<tailnet>.ts.net/atrium/mapping`
+- From the Home Assistant machine (no Tailscale there), through Home Assistant's ingress with an administrator's
+  long-lived token: create an ingress session, then call the add-on's ingress path with it:
+  ```sh
+  T=…                                                            # the token
+  S=$(curl -sS -X POST -H "Authorization: Bearer $T" http://homeassistant:8123/api/hassio/ingress/session | python3 -c 'import json,sys;print(json.load(sys.stdin)["session"])')
+  P=$(curl -sS -H "Authorization: Bearer $T" http://homeassistant:8123/api/hassio/addons/df84f1fd_atrium/info | python3 -c 'import json,sys;print(json.load(sys.stdin)["data"]["ingress_url"])')
+  curl -sS -X PUT --data-binary @atrium.yaml -b "ingress_session=$S" "http://homeassistant:8123${P}atrium/mapping"
+  ```
+- Or put the file in place yourself: `/addon_configs/df84f1fd_atrium/atrium.yaml` (the Terminal add-on sees that
+  path); the add-on re-reads it on change.
+
+Then:
 
 1. `ha apps logs df84f1fd_atrium` — read the `mapping:` lines. The good case is one line, `mapping: N rooms,
    no problems`. Each other line names something that could not be used (an entity Home Assistant does not
