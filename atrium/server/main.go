@@ -40,7 +40,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.4.0"
+const version = "0.4.1"
 
 // Person is a Tailscale login that may use the gateway, optionally as a Home Assistant user of its own.
 type Person struct {
@@ -97,6 +97,17 @@ type Gateway struct {
 	building   singleflight.Group
 	admins     map[string]bool // Home Assistant user id → is an administrator
 	adminsAt   time.Time
+	setup      Setup
+}
+
+// Setup is where the add-on is in joining the tailnet, for the panel to walk the owner through it: it is
+// reachable through Home Assistant's sidebar before Tailscale is signed in, so the sign-in link can be a button
+// there instead of a line in the log.
+type Setup struct {
+	State   string `json:"state"`             // "starting", "needs-login", "up"
+	AuthURL string `json:"authURL,omitempty"` // the Tailscale sign-in link, while needs-login
+	Address string `json:"address,omitempty"` // https://atrium.<tailnet>.ts.net (or http://…), once up
+	Owner   string `json:"owner,omitempty"`   // the login that signed the machine in, once known
 }
 
 // isMine says whether a request's Host names this machine (with or without a port).
@@ -267,6 +278,14 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 	}
 	up := g.upstreamFor(id)
 	switch {
+	case r.URL.Path == "/atrium/setup":
+		g.mu.Lock()
+		setup := g.setup
+		setup.Owner = g.Owner
+		g.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		json.NewEncoder(w).Encode(setup)
 	case r.URL.Path == "/atrium/house":
 		g.serveHouse(w, r)
 	case r.URL.Path == "/atrium/config":
@@ -486,6 +505,14 @@ func main() {
 			g.Names = append(g.Names, host)
 		}
 		g.WebDir = env("ATRIUM_WEB", "")
+		switch os.Getenv("ATRIUM_DEV_SETUP") { // lets the panel's set-up card be seen without a tailnet
+		case "needs-login":
+			g.setup = Setup{State: "needs-login", AuthURL: "https://login.tailscale.com/a/0123456789abcd"}
+		case "starting":
+			g.setup = Setup{State: "starting"}
+		default:
+			g.setup = Setup{State: "up", Address: "http://" + listen}
+		}
 		if ingress := os.Getenv("ATRIUM_INGRESS"); ingress != "" { // e.g. 127.0.0.1:8099: pretends to be the Supervisor's ingress
 			g.Supervisor = []string{"127.0.0.1", "::1"}
 			go func() { log.Fatal(http.ListenAndServe(ingress, Ingress{g})) }()
@@ -519,12 +546,39 @@ func main() {
 
 	srv := &tsnet.Server{Hostname: opts.Hostname, Dir: env("ATRIUM_STATE", "/data/tsnet"), AuthKey: opts.AuthKey, UserLogf: log.Printf, Logf: func(string, ...any) {}}
 	defer srv.Close()
-	log.Printf("Atrium %s: joining the tailnet as %q. If a sign-in link appears below, open it once.", version, opts.Hostname)
-	status, err := srv.Up(context.Background())
-	if err != nil {
+	log.Printf("Atrium %s: joining the tailnet as %q. The first time, sign in from the Atrium panel in Home Assistant (or open the link below once).", version, opts.Hostname)
+	g.setup = Setup{State: "starting"}
+	if err := srv.Start(); err != nil {
 		log.Fatalf("Tailscale: %v", err)
 	}
 	lc, err := srv.LocalClient()
+	if err != nil {
+		log.Fatalf("Tailscale: %v", err)
+	}
+	// While Up waits for the sign-in, the panel shows the link: the state is read every second until it is Running.
+	joined := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-joined:
+				return
+			case <-time.After(time.Second):
+			}
+			st, err := lc.Status(context.Background())
+			if err != nil || st == nil {
+				continue
+			}
+			g.mu.Lock()
+			if st.BackendState == "NeedsLogin" && st.AuthURL != "" {
+				g.setup = Setup{State: "needs-login", AuthURL: st.AuthURL}
+			} else if st.BackendState != "Running" && g.setup.State != "needs-login" {
+				g.setup = Setup{State: "starting"}
+			}
+			g.mu.Unlock()
+		}
+	}()
+	status, err := srv.Up(context.Background())
+	close(joined)
 	if err != nil {
 		log.Fatalf("Tailscale: %v", err)
 	}
@@ -609,11 +663,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
+	address := "http://" + name
 	if secure, err := srv.ListenTLS("tcp", ":443"); err == nil {
 		go serve(secure, "https")
+		address = "https://" + name
 	} else {
 		log.Printf("No HTTPS (%v). Plain HTTP inside the tailnet's encryption is used instead; enable HTTPS certificates in the Tailscale admin console to add it.", err)
 	}
+	g.mu.Lock()
+	g.setup = Setup{State: "up", Address: address}
+	g.mu.Unlock()
 	fmt.Fprintln(os.Stderr)
 	serve(plain, "http")
 }

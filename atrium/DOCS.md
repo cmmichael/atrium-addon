@@ -44,12 +44,16 @@ the choice; it is not required.
 
 ## Set up
 
-1. Add the repository https://github.com/cmmichael/atrium-addon in Settings → Add-ons → Add-on Store → ⋮ →
-   Repositories, install **Atrium**, start it, and open its **Log**. The first time it prints a Tailscale sign-in link: open it and
-   approve the machine. (Or put a Tailscale auth key in `auth_key` before starting.)
-2. On the phone or tablet, turn Tailscale on and open Atrium. It finds `atrium` on your tailnet by itself.
-3. For the web version in Home Assistant's sidebar, turn on **Show in sidebar** on the add-on's page (administrators
-   only). On the tailnet, open `https://atrium.<your-tailnet>.ts.net/` in any browser.
+Nothing to type: every step is a button.
+
+1. Press **Add to Home Assistant** on https://github.com/cmmichael/atrium-addon (or add that repository under
+   Settings → Add-ons → Add-on Store → ⋮ → Repositories). Home Assistant opens Atrium's page: **Install**, then **Start**.
+2. Press **Open Web UI**. Atrium's own page opens and asks you to **Sign in to Tailscale**, once: that puts the house on
+   your tailnet as a machine called `atrium`. The page notices when you are done and shows the house's address.
+   (Rather than signing in, you can put a Tailscale auth key in `auth_key` before starting.)
+3. On the phone or tablet, turn Tailscale on and open Atrium. It finds `atrium` on your tailnet by itself.
+4. To keep the web version in Home Assistant's sidebar, turn on **Show in sidebar** on the add-on's page (it is for
+   administrators). On the tailnet, open `https://atrium.<your-tailnet>.ts.net/` in any browser.
 
 HTTPS: if HTTPS certificates are enabled for your tailnet (Tailscale admin console → DNS), the add-on also listens on
 `https://atrium.<your-tailnet>.ts.net`. Otherwise it serves plain HTTP inside the tailnet's own encryption.

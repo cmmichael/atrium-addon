@@ -358,6 +358,19 @@ func TestIngressTakesHomeAssistantsWordForWhoIsSignedIn(t *testing.T) {
 	if w := ask("/api/states", "X-Remote-User-Name", "someone@example.com", "X-Remote-User-Id", "u1"); w.Code != 403 {
 		t.Errorf("a non-admin got the API through ingress: %d", w.Code)
 	}
+	// Setting up: the panel works before the tailnet does, and shows the administrator the sign-in link.
+	g.mu.Lock()
+	g.setup = Setup{State: "needs-login", AuthURL: "https://login.tailscale.com/a/abc"}
+	g.mu.Unlock()
+	var setup Setup
+	w = ask("/atrium/setup", admin...)
+	json.Unmarshal(w.Body.Bytes(), &setup)
+	if w.Code != 200 || setup.State != "needs-login" || setup.AuthURL != "https://login.tailscale.com/a/abc" {
+		t.Errorf("setup through ingress: %d %+v", w.Code, setup)
+	}
+	if w := ask("/atrium/setup", "X-Remote-User-Name", "someone@example.com", "X-Remote-User-Id", "u1"); w.Code != 403 {
+		t.Errorf("a non-admin saw the sign-in link: %d", w.Code)
+	}
 }
 
 func TestTheWebAppIsServedWithItsBase(t *testing.T) {
