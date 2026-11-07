@@ -1,8 +1,9 @@
 name: Atrium
-version: "0.4.3"
+version: "0.4.4"
 slug: atrium
-description: Reach Home Assistant from the Atrium app over your tailnet, signed in by your Tailscale identity
+description: Your house in the Atrium app and on the web, from anywhere, over your tailnet
 url: https://github.com/cmmichael/atrium-addon
+image: ghcr.io/cmmichael/atrium-{arch}  # built by the add-on repository's workflow on each release; pulled, not built, on install
 arch:
   - aarch64
   - amd64

@@ -15,4 +15,4 @@ Turn on **Show in sidebar** to keep the web version in Home Assistant's sidebar.
 use it, is in [atrium/DOCS.md](atrium/DOCS.md).
 
 Published from the Atrium repository by `tools/publish-addon.sh`; the source of truth is there. Current version:
-**0.4.3** (atrium@611db97).
+**0.4.4** (atrium@08ce759).

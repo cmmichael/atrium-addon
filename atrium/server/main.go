@@ -40,7 +40,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.4.3"
+const version = "0.4.4"
 
 // Person is a Tailscale login that may use the gateway, optionally as a Home Assistant user of its own.
 type Person struct {
@@ -300,7 +300,11 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 	case strings.HasPrefix(r.URL.Path, "/local/"):
 		forward(w, r, g.Core, "")
 	case g.WebDir != "" && !strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/atrium/"):
-		g.serveWeb(w, r, base)
+		page := "index.html"
+		if id.HomeAssistant && fileExists(filepath.Join(g.WebDir, "setup.html")) {
+			page = "setup.html" // in Home Assistant's sidebar: the set-up page, not the app (that lives on the tailnet)
+		}
+		g.serveWeb(w, r, base, page)
 	default:
 		http.NotFound(w, r)
 	}
@@ -309,7 +313,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 // serveWeb serves the built web app: files as they are, and index.html for everything else (its routes are
 // client-side), with <base href> set to where the app is mounted, so the same build works on the tailnet and
 // through ingress.
-func (g *Gateway) serveWeb(w http.ResponseWriter, r *http.Request, base string) {
+func (g *Gateway) serveWeb(w http.ResponseWriter, r *http.Request, base, page string) {
 	name := path.Clean("/" + r.URL.Path)
 	if name != "/" {
 		if f, err := os.Stat(filepath.Join(g.WebDir, filepath.FromSlash(name))); err == nil && !f.IsDir() {
@@ -317,15 +321,15 @@ func (g *Gateway) serveWeb(w http.ResponseWriter, r *http.Request, base string) 
 			return
 		}
 	}
-	index, err := os.ReadFile(filepath.Join(g.WebDir, "index.html"))
+	index, err := os.ReadFile(filepath.Join(g.WebDir, page))
 	if err != nil {
 		http.Error(w, "the web app is not installed", http.StatusNotFound)
 		return
 	}
-	page := strings.Replace(string(index), "<head>", `<head><base href="`+base+`/">`, 1)
+	html := strings.Replace(string(index), "<head>", `<head><base href="`+base+`/">`, 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
-	w.Write([]byte(page))
+	w.Write([]byte(html))
 }
 
 // forward sends one HTTP request on to Home Assistant, with the credential set here and nothing of the caller's.

@@ -378,6 +378,7 @@ func TestTheWebAppIsServedWithItsBase(t *testing.T) {
 	defer ha.Close()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<!doctype html><html><head><title>Atrium</title></head><body></body></html>"), 0o644)
+	os.WriteFile(filepath.Join(dir, "setup.html"), []byte("<!doctype html><html><head><title>Atrium</title></head><body>set-up</body></html>"), 0o644)
 	os.MkdirAll(filepath.Join(dir, "assets"), 0o755)
 	os.WriteFile(filepath.Join(dir, "assets", "app.js"), []byte("console.log(1)"), 0o644)
 	g := gateway(ha, Identity{Login: "owner@example.com"})
@@ -398,8 +399,8 @@ func TestTheWebAppIsServedWithItsBase(t *testing.T) {
 	r.Header.Set("X-Ingress-Path", "/api/hassio_ingress/tok")
 	w := httptest.NewRecorder()
 	Ingress{g}.ServeHTTP(w, r)
-	if !strings.Contains(w.Body.String(), `<base href="/api/hassio_ingress/tok/">`) {
-		t.Errorf("through ingress: %q", w.Body.String())
+	if !strings.Contains(w.Body.String(), `<base href="/api/hassio_ingress/tok/">`) || !strings.Contains(w.Body.String(), "set-up") {
+		t.Errorf("through ingress (should be the set-up page): %q", w.Body.String())
 	}
 	if code, _ := get(t, gateway(ha, Identity{Login: "stranger@example.com"}), "/"); code != 403 {
 		t.Errorf("a stranger got the web app: %d", code)
