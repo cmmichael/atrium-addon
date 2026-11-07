@@ -37,8 +37,8 @@ func (g *Gateway) mayConfigure(id Identity) bool {
 	return false
 }
 
-// dump asks Home Assistant for everything the builder needs: the four registries and every state, over one
-// WebSocket session, plus the house's optional overlay and its name.
+// dump asks Home Assistant for everything the renderer needs: the four registries and every state, over one
+// WebSocket session, and the house's name.
 func (g *Gateway) dump(ctx context.Context) (house.Dump, error) {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -104,7 +104,6 @@ func (g *Gateway) dump(ctx context.Context) (house.Dump, error) {
 	if cfg, _ := results[6].(map[string]any); cfg != nil {
 		d.Name, _ = cfg["location_name"].(string)
 	}
-	d.Overlay = g.overlay(ctx)
 	return d, nil
 }
 
@@ -117,31 +116,6 @@ func objects(v any) []map[string]any {
 		}
 	}
 	return out
-}
-
-// overlay is the house twin's entities.json, when the house publishes one; nil otherwise.
-func (g *Gateway) overlay(ctx context.Context) map[string]any {
-	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimSuffix(g.Core.String(), "/")+"/local/house-twin/entities.json", nil)
-	if err != nil {
-		return nil
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil
-	}
-	defer res.Body.Close()
-	if res.StatusCode != 200 {
-		return nil
-	}
-	data, err := io.ReadAll(io.LimitReader(res.Body, 8<<20))
-	if err != nil {
-		return nil
-	}
-	var m map[string]any
-	if json.Unmarshal(data, &m) != nil {
-		return nil
-	}
-	return m
 }
 
 // built is one house.json with when it was built.
@@ -169,7 +143,7 @@ func (g *Gateway) houseJSON(ctx context.Context) (built, error) {
 	g.mu.Unlock()
 	v, err, _ := g.building.Do(key, func() (any, error) {
 		g.mu.Lock()
-		cfg, gen, before := g.config, g.generation, g.house
+		cfg, mapping, gen, before := g.config, g.mapping, g.generation, g.house
 		g.mu.Unlock()
 		d, err := g.dump(context.WithoutCancel(ctx))
 		if err != nil {
@@ -180,8 +154,20 @@ func (g *Gateway) houseJSON(ctx context.Context) (built, error) {
 			}
 			return built{}, err
 		}
-		h := house.Build(d, cfg)
+		h, problems := house.Render(mapping, d, cfg)
 		h.BuiltAt = time.Now().UTC().Format(time.RFC3339)
+		g.mu.Lock()
+		changed := !g.rendered || strings.Join(problems, "\n") != strings.Join(g.problems, "\n")
+		g.problems, g.rendered = problems, true
+		g.mu.Unlock()
+		if changed {
+			for _, p := range problems {
+				log.Printf("mapping: %s", p)
+			}
+			if len(problems) == 0 {
+				log.Printf("mapping: %d rooms, no problems", len(h.Rooms))
+			}
+		}
 		data, err := json.Marshal(h)
 		if err != nil {
 			return built{}, err

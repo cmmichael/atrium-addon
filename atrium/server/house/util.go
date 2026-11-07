@@ -33,13 +33,6 @@ func firstOf(values ...string) string {
 	return ""
 }
 
-func firstID(list []ent) string {
-	if len(list) == 0 {
-		return ""
-	}
-	return list[0].id
-}
-
 func str(v any) string {
 	s, _ := v.(string)
 	return s
@@ -119,4 +112,42 @@ func capitalizedFirst(s string) string {
 		return s
 	}
 	return string(unicode.ToUpper(r)) + s[size:]
+}
+
+// MARK: Names and icons
+
+func pretty(id string) string {
+	words := id
+	if i := strings.LastIndex(id, "."); i >= 0 {
+		words = id[i+1:]
+	}
+	return capitalizedFirst(strings.NewReplacer("_", " ", "-", " ").Replace(words))
+}
+
+// "Family Room Floor Lamp" in Family Room → "Floor lamp".
+func short(name, room string) string {
+	for _, prefix := range []string{room, strings.ReplaceAll(room, " Room", ""), strings.ReplaceAll(room, "'s", "")} {
+		if strings.HasPrefix(strings.ToLower(name), strings.ToLower(prefix)+" ") && len(name) > len(prefix)+1 {
+			return capitalizedFirst(strings.TrimSpace(name[len(prefix)+1:]))
+		}
+	}
+	return name
+}
+
+var icons = [][2]string{
+	{"kitchen", "fork.knife"}, {"dining", "fork.knife.circle"}, {"family", "sofa"}, {"living", "sofa"}, {"lounge", "sofa"}, {"garage", "car"},
+	{"gym", "dumbbell"}, {"office", "desktopcomputer"}, {"study", "desktopcomputer"}, {"bath", "shower"}, {"powder", "shower"}, {"laundry", "washer"},
+	{"pantry", "cabinet"}, {"stair", "stairs"}, {"hall", "door.left.hand.open"}, {"entry", "door.left.hand.open"}, {"play", "gamecontroller"},
+	{"game", "gamecontroller"}, {"server", "server.rack"}, {"bed", "bed.double"}, {"yard", "tree"}, {"garden", "tree"}, {"patio", "tree"},
+	{"exterior", "tree"}, {"outside", "tree"}, {"porch", "door.left.hand.open"}, {"deck", "tree"}, {"pool", "figure.pool.swim"}, {"room", "bed.double"},
+}
+
+func iconFor(room string) string {
+	n := strings.ToLower(room)
+	for _, ic := range icons {
+		if strings.Contains(n, ic[0]) {
+			return ic[1]
+		}
+	}
+	return "square.split.bottomrightquarter"
 }

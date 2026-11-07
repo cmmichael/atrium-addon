@@ -5,6 +5,7 @@ go 1.27.3
 require (
 	github.com/coder/websocket v1.8.15
 	golang.org/x/sync v0.24.0
+	gopkg.in/yaml.v3 v3.0.1
 	tailscale.com v1.104.5
 )
 
