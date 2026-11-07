@@ -405,3 +405,27 @@ func TestTheWebAppIsServedWithItsBase(t *testing.T) {
 		t.Errorf("a stranger got the web app: %d", code)
 	}
 }
+
+// Through ingress the browser's Origin is Home Assistant's and the Host is the Supervisor's view of the add-on,
+// so the WebSocket must not insist that they match (it did, and the panel never connected).
+func TestTheIngressWebSocketConnectsWithHomeAssistantsOrigin(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	g := gateway(ha, Identity{})
+	g.Supervisor = []string{"127.0.0.1", "::1"} // the test's own connection stands in for the Supervisor's
+	front := httptest.NewServer(Ingress{g})
+	defer front.Close()
+	ctx := context.Background()
+	opts := &websocket.DialOptions{HTTPHeader: http.Header{
+		"Origin": {"http://192.168.1.106:8123"}, "Sec-Fetch-Site": {"same-origin"},
+		"X-Remote-User-Name": {"admin@example.com"}, "X-Remote-User-Id": {"u2"}, "X-Ingress-Path": {"/api/hassio_ingress/tok"},
+	}}
+	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(front.URL, "http")+"/api/websocket", opts)
+	if err != nil {
+		t.Fatalf("the panel's WebSocket was refused: %v", err)
+	}
+	defer c.CloseNow()
+	if _, m, _ := c.Read(ctx); !strings.Contains(string(m), "auth_required") {
+		t.Fatalf("first message: %s", m)
+	}
+}

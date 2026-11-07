@@ -292,7 +292,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		g.serveConfig(w, r, id)
 	case r.URL.Path == "/api/websocket":
 		log.Printf("%s (%s) connected", id.Login, id.Device)
-		g.serveWebSocket(w, r, up)
+		g.serveWebSocket(w, r, id, up)
 	case strings.HasPrefix(r.URL.Path, "/api/hassio"): // /api/hassio/…, /api/hassio_ingress/…, /api/hassio_app/…
 		http.Error(w, "the Supervisor is not reachable through Atrium", http.StatusForbidden) // the app has no use for it
 	case strings.HasPrefix(r.URL.Path, "/api/"):
@@ -355,9 +355,17 @@ func forward(w http.ResponseWriter, r *http.Request, base *url.URL, token string
 
 // serveWebSocket joins the caller's WebSocket to Home Assistant's. Home Assistant opens by asking for a
 // token; the caller answers with a placeholder, which is replaced here by the real one.
-func (g *Gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, up Upstream) {
-	client, err := websocket.Accept(w, r, nil) // an Origin never gets this far; if one did, Accept would require it to match the Host
+func (g *Gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, id Identity, up Upstream) {
+	// On the tailnet an Origin must match the Host (foreignPage has already refused other sites' pages). Through
+	// ingress the Host is the Supervisor's view of the add-on and the Origin is Home Assistant's, so that check
+	// cannot hold; the ingress listener has already made sure the peer is the Supervisor and the page its own.
+	var opts *websocket.AcceptOptions
+	if id.HomeAssistant {
+		opts = &websocket.AcceptOptions{InsecureSkipVerify: true}
+	}
+	client, err := websocket.Accept(w, r, opts)
 	if err != nil {
+		log.Printf("%s (%s): WebSocket refused: %v", id.Login, id.Device, err)
 		return
 	}
 	defer client.CloseNow()
