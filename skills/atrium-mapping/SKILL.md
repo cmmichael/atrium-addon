@@ -74,10 +74,13 @@ Give the file to the add-on: `PUT /atrium/mapping` with the YAML as the body. It
 refused with the reason and nothing changes), saved, rendered, and the answer lists what Home Assistant does not
 have: `{"rooms": 26, "problems": [...], "path": "/addon_configs/df84f1fd_atrium/atrium.yaml"}`. `GET` reads it back.
 
+- On Atrium's set-up page in Home Assistant's sidebar (an administrator, signed in to Home Assistant): the
+  **Upload atrium.yaml** button on the Layout card. Hand the owner the file and that is one click for them.
 - On the tailnet, from a device whose Tailscale login is the owner's or an admin's (no token needed):
   `curl -sS -X PUT --data-binary @atrium.yaml https://atrium.<tailnet>.ts.net/atrium/mapping`
-- From the Home Assistant machine (no Tailscale there), through Home Assistant's ingress with an administrator's
-  long-lived token: create an ingress session, then call the add-on's ingress path with it:
+- From the Home Assistant machine (no Tailscale there), through Home Assistant's ingress — only if you hold an
+  administrator's long-lived token already; never ask for one or store one to do this, and never make a session
+  for a user with the Supervisor token (that impersonates them). Otherwise use the upload button above.
   ```sh
   T=…                                                            # the token
   S=$(curl -sS -X POST -H "Authorization: Bearer $T" http://homeassistant:8123/api/hassio/ingress/session | python3 -c 'import json,sys;print(json.load(sys.stdin)["session"])')

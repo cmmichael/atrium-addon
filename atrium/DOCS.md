@@ -32,7 +32,8 @@ the file fills it.
 The file is written for your house by the **atrium-mapping** skill: give it to a Claude that can reach your Home
 Assistant (Claude Code on the machine, or with a long-lived access token). It drafts the layout from your areas and
 devices, reviews the judgment calls (which thermostat heats which room, which camera is the doorbell, which sensors
-are solar and grid), writes the file, and checks the result. The skill is in the add-on repository under
+are solar and grid), and gives you the file; you hand it in with **Upload atrium.yaml** on Atrium's set-up page,
+which checks it and says what it could not use. The skill is in the add-on repository under
 `skills/atrium-mapping`, with the file's full contract (`mapping.md`). You can also write the file by hand.
 
 Atrium re-reads the file whenever it changes and reports, in its log and on its set-up page, anything in it that

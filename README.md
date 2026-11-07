@@ -21,4 +21,4 @@ Starting over? In Home Assistant's Terminal, `curl -fsSL https://raw.githubuserc
 removes Atrium completely (settings and Tailscale sign-in included); then press the button again.
 
 Published from the Atrium repository by `tools/publish-addon.sh`; the source of truth is there. Current version:
-**0.5.2** (atrium@1c0c3fc).
+**0.5.3** (atrium@e1cb81e).
