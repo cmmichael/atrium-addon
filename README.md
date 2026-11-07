@@ -17,8 +17,16 @@ use it, is in [atrium/DOCS.md](atrium/DOCS.md).
 The layout is a file, `/config/atrium.yaml`, written for your house by the
 [atrium-mapping skill](skills/atrium-mapping/SKILL.md): point a Claude that can reach your Home Assistant at it.
 
-Starting over? In Home Assistant's Terminal, `curl -fsSL https://raw.githubusercontent.com/cmmichael/atrium-addon/main/reset.sh | sh`
-removes Atrium completely (settings and Tailscale sign-in included); then press the button again.
+## Uninstall, or start over
+
+In Home Assistant's Terminal app:
+
+    curl -fsSL https://raw.githubusercontent.com/cmmichael/atrium-addon/main/reset.sh | sh
+
+That stops and uninstalls Atrium (its settings, layout and Tailscale sign-in go with it), removes any copy in the
+local apps folder, and reloads the store. Two things it cannot reach: remove the **atrium** machine in your
+Tailscale admin console (or the next install is named `atrium-1`), and delete the app from your phone if you want
+it fresh too. Then press the button above again.
 
 Published from the Atrium repository by `tools/publish-addon.sh`; the source of truth is there. Current version:
-**0.5.6** (atrium@7c3133d).
+**0.5.6** (atrium@d8147a4).
