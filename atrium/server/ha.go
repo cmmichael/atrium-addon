@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -108,7 +109,49 @@ func (g *Gateway) dump(ctx context.Context) (house.Dump, error) {
 	if cfg, _ := results[6].(map[string]any); cfg != nil {
 		d.Name, _ = cfg["location_name"].(string)
 	}
+	// How each camera streams (HLS through the API, or WebRTC only): the apps choose the player by it, and a
+	// WebRTC-only camera (Nest) has no still image, only a placeholder.
+	d.CameraStreams = map[string][]string{}
+	var cams []string
+	for id := range d.States {
+		if strings.HasPrefix(id, "camera.") {
+			cams = append(cams, id)
+		}
+	}
+	sort.Strings(cams)
+	for i, id := range cams {
+		if err := write(map[string]any{"id": 100 + i, "type": "camera/capabilities", "entity_id": id}); err != nil {
+			return d, nil
+		}
+	}
+	for got := 0; got < len(cams); {
+		m, err := read()
+		if err != nil {
+			break
+		}
+		id, _ := m["id"].(float64)
+		if m["type"] != "result" || int(id) < 100 || int(id) >= 100+len(cams) {
+			continue
+		}
+		got++
+		if r, _ := m["result"].(map[string]any); r != nil {
+			for _, t := range strs(r["frontend_stream_types"]) {
+				d.CameraStreams[cams[int(id)-100]] = append(d.CameraStreams[cams[int(id)-100]], t)
+			}
+		}
+	}
 	return d, nil
+}
+
+func strs(v any) []string {
+	list, _ := v.([]any)
+	out := []string{}
+	for _, x := range list {
+		if s, ok := x.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func objects(v any) []map[string]any {

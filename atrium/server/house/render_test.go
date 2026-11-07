@@ -27,7 +27,7 @@ func smallHome() Dump {
 	d := Dump{Name: "Test Home", States: map[string]*State{}}
 	d.Floors = list(`[{"floor_id":"up","name":"Upstairs","level":1},{"floor_id":"down","name":"Downstairs","level":0}]`)
 	d.Areas = list(`[{"area_id":"kitchen","name":"Kitchen","floor_id":"down"},{"area_id":"bed","name":"Bedroom","floor_id":"up"},{"area_id":"shed","name":"Shed","floor_id":null},{"area_id":"empty","name":"Empty","floor_id":"down"}]`)
-	d.Devices = list(`[{"id":"dev1","area_id":"kitchen"},{"id":"car","area_id":"shed"}]`)
+	d.Devices = list(`[{"id":"dev1","area_id":"kitchen"},{"id":"car","area_id":"shed"},{"id":"sonos-kitchen","name":"Kitchen","area_id":"kitchen"},{"id":"ma-kitchen","name":"Kitchen"}]`)
 	reg := func(id, area, device, platform string, hidden bool) map[string]any {
 		e := map[string]any{"entity_id": id, "platform": platform}
 		if area != "" {
@@ -52,6 +52,7 @@ func smallHome() Dump {
 		reg("media_player.front_speaker", "", "bell", "unifiprotect", false), reg("binary_sensor.front_doorbell", "", "bell", "unifiprotect", false),
 		reg("binary_sensor.front_door", "", "bell", "demo", false), reg("scene.bed_night", "bed", "", "hue", false),
 		reg("light.oven_light", "kitchen", "", "miele", false),
+		map[string]any{"entity_id": "media_player.kitchen_ma", "platform": "music_assistant", "device_id": "ma-kitchen", "config_entry_id": "ma-entry"},
 	}
 	st := func(id, state, attrs string) {
 		a, _ := j(attrs).(map[string]any)
@@ -73,6 +74,7 @@ func smallHome() Dump {
 	st("sensor.shed_pipe_temperature", "18.5", `{"friendly_name":"Shed pipe","device_class":"temperature","unit_of_measurement":"°C"}`)
 	st("light.kiosk_screen", "on", `{"friendly_name":"Kiosk screen"}`)
 	st("light.oven_light", "off", `{"friendly_name":"Oven light"}`)
+	st("media_player.kitchen_ma", "idle", `{"friendly_name":"Kitchen","device_class":"speaker"}`)
 	st("camera.front", "idle", `{"friendly_name":"Front"}`)
 	st("media_player.front_speaker", "idle", `{"friendly_name":"Front speaker","device_class":"speaker"}`)
 	st("binary_sensor.front_doorbell", "off", `{"device_class":"occupancy"}`)
@@ -178,7 +180,10 @@ func TestTheRoomsAreDrawnFromHomeAssistantWithNoMappingAtAll(t *testing.T) {
 	eq(t, "entries", h.Security.Entries, []string{"binary_sensor.front_door"})
 	eq(t, "camera for the door", h.Security.CameraFor, map[string]string{"binary_sensor.front_door": "camera.front"})
 	eq(t, "doorbells", h.Security.Doorbells, []string{"camera.front"})
-	eq(t, "speakers", h.Speakers, []string{"media_player.kitchen"})    // not the doorbell's own speaker, not the kiosk
+	eq(t, "speakers", h.Speakers, []string{"media_player.kitchen"}) // not the doorbell's own speaker, not the kiosk, not MA's copy
+	if h.MusicAssistant == nil || h.MusicAssistant.Entry != "ma-entry" || h.MusicAssistant.Players["media_player.kitchen"] != "media_player.kitchen_ma" {
+		t.Errorf("music assistant: %+v", h.MusicAssistant)
+	}
 	eq(t, "unassigned", h.Rooms[3].Entities, []string{"climate.hall"}) // the kiosk "light" and the camera's speaker are not controls
 	eq(t, "scenes", h.Scenes, []SceneRef{{Entity: "scene.movie", Name: "Movie"}, {Entity: "scene.bed_night", Name: "Night", Room: "bed"}})
 	if !(Mapping{}).Empty() || (Mapping{}).Custom() {
@@ -331,4 +336,12 @@ func TestTheJSONContractWithTheApps(t *testing.T) {
 	if _, ok := sec["cameraFor"].(map[string]any); !ok {
 		t.Error("security.cameraFor must be an object even when empty")
 	}
+}
+
+func TestCameraNamesAndChannels(t *testing.T) {
+	eq(t, "unifi", cameraName("Front Door - Entry High resolution channel"), "Front Door - Entry")
+	eq(t, "nest", cameraName("Driveway"), "Driveway")
+	eq(t, "camera word", cameraName("Back Yard Camera"), "Back Yard")
+	eq(t, "lower case", cameraName("Back Yard camera"), "Back Yard")
+	eq(t, "only the word", cameraName("Camera"), "Camera")
 }

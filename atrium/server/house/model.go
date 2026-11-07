@@ -46,6 +46,23 @@ type Security struct {
 	Hazards   []string          `json:"hazards"`
 	Doorbells []string          `json:"doorbells"`
 	CameraFor map[string]string `json:"cameraFor"`
+	// camera id → "hls" (streams through the API, and has stills) or "webrtc" (WebRTC only, no still: Nest).
+	// A camera not listed streams the old way: stills only.
+	Streams map[string]string `json:"streams"`
+	// UniFi Access-style doors: an unlock button with the door's contact. Shown as locks.
+	Doors []Door `json:"doors"`
+}
+
+type MusicAssistant struct {
+	Entry   string            `json:"entry"`
+	Players map[string]string `json:"players"`
+}
+
+// Door is a door with a lock that is a button (UniFi Access): pressing unlock opens it for a few seconds.
+type Door struct {
+	Unlock  string `json:"unlock"`            // button.*
+	Contact string `json:"contact,omitempty"` // binary_sensor.* door contact, for open/closed
+	Name    string `json:"name"`
 }
 
 // Energy is what the Energy screen shows.
@@ -71,6 +88,9 @@ type House struct {
 	Speakers []string          `json:"speakers"`
 	Names    map[string]string `json:"names"`
 	BuiltAt  string            `json:"builtAt,omitempty"` // when the add-on built this, RFC 3339
+	// Music Assistant, when the house has it: its config entry (its services need it) and, for each speaker
+	// shown, its Music Assistant twin (play, search, transfer go to the twin).
+	MusicAssistant *MusicAssistant `json:"musicAssistant,omitempty"`
 	// Rooms the configuration hides, so an editor can offer them back. Not shown.
 	HiddenRooms []Room `json:"hiddenRooms,omitempty"`
 }
@@ -79,7 +99,7 @@ func newHouse(name string) House {
 	return House{
 		Name: name, Floors: []Floor{}, Rooms: []Room{}, Scenes: []SceneRef{}, Speakers: []string{}, Names: map[string]string{},
 		Summary:  Summary{People: []string{}},
-		Security: Security{Cameras: []string{}, Locks: []string{}, Entries: []string{}, Hazards: []string{}, Doorbells: []string{}, CameraFor: map[string]string{}},
+		Security: Security{Cameras: []string{}, Locks: []string{}, Entries: []string{}, Hazards: []string{}, Doorbells: []string{}, CameraFor: map[string]string{}, Streams: map[string]string{}, Doors: []Door{}},
 		Energy:   Energy{LoadPower: []string{}, Consumers: []string{}},
 	}
 }
@@ -114,4 +134,6 @@ type Dump struct {
 	Entities []map[string]any // config/entity_registry/list
 	Devices  []map[string]any // config/device_registry/list
 	States   map[string]*State
+	// camera id → how it streams ("hls", "web_rtc"), from camera/capabilities. Missing: not asked (older dump).
+	CameraStreams map[string][]string
 }

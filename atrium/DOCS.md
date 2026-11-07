@@ -54,6 +54,12 @@ Atrium re-reads the file whenever it changes and reports, in its log and on its 
 Home Assistant does not have. In the app you can still hide, rename, move and reorder rooms and things; those
 preferences are kept separately and survive a new layout.
 
+## Cameras
+
+Cameras play live in the app and on the web: UniFi Protect through Atrium (so anywhere Atrium works), Nest over
+WebRTC from Google. UniFi Protect's events of the last day are under each camera as clips. Nest cameras have no
+still picture, so their tiles show "Live view" until one is opened.
+
 ## Good to know
 
 - Atrium is its own machine on your tailnet (named `atrium` unless you change it), using Tailscale's `tsnet`

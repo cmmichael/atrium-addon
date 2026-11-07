@@ -100,6 +100,15 @@ type SecurityMapping struct {
 	Locks     []string          `yaml:"locks,omitempty"`
 	Entries   []string          `yaml:"entries,omitempty"`
 	Hazards   []string          `yaml:"hazards,omitempty"`
+	// Doors whose lock is a button (UniFi Access). Absent: the add-on's guess, even when the rest of the section
+	// is given; an empty list: none.
+	Doors []DoorMapping `yaml:"doors,omitempty"`
+}
+
+type DoorMapping struct {
+	Unlock  string `yaml:"unlock"`
+	Contact string `yaml:"contact,omitempty"`
+	Name    string `yaml:"name,omitempty"`
 }
 
 type EnergyMapping struct {

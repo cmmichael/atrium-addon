@@ -49,16 +49,20 @@ type index struct {
 	deviceHas  map[string]map[string]bool // device id → domains it has (a camera's speaker is not a room's)
 	isSpeaker  map[string]bool
 	deviceArea map[string]string
+	deviceName map[string]string
+	registry   map[string]map[string]any
 }
 
 func newIndex(d Dump, music *MusicMapping) *index {
-	x := &index{d: d, byID: map[string]ent{}, deviceHas: map[string]map[string]bool{}, isSpeaker: map[string]bool{}, deviceArea: map[string]string{}}
+	x := &index{d: d, byID: map[string]ent{}, deviceHas: map[string]map[string]bool{}, isSpeaker: map[string]bool{}, deviceArea: map[string]string{}, deviceName: map[string]string{}}
 	for _, dev := range d.Devices {
 		if id, _ := dev["id"].(string); id != "" {
 			x.deviceArea[id], _ = dev["area_id"].(string)
+			x.deviceName[id] = firstOf(str(dev["name_by_user"]), str(dev["name"]))
 		}
 	}
 	registry := map[string]map[string]any{}
+	x.registry = registry
 	for _, e := range d.Entities {
 		if id, _ := e["entity_id"].(string); id != "" {
 			registry[id] = e
@@ -197,6 +201,10 @@ func (x *index) autoSecurity() SecurityMapping {
 	s := SecurityMapping{Cameras: []string{}, Doorbells: []string{}, CameraFor: map[string]string{}, Locks: []string{}, Entries: []string{}, Hazards: []string{}}
 	var cams []ent
 	for _, c := range x.all("camera") {
+		// UniFi Protect's G4/G6 doorbells have a second, downward "package" camera: a channel, not a camera.
+		if strings.Contains(c.id, "package_camera") || strings.HasSuffix(strings.ToLower(c.name), "package camera") {
+			continue
+		}
 		if !vehicles[c.platform] && !kiosks[c.platform] {
 			cams = append(cams, c)
 			s.Cameras = append(s.Cameras, c.id)
@@ -254,11 +262,36 @@ func (x *index) autoSecurity() SecurityMapping {
 			s.Hazards = append(s.Hazards, b.id)
 		}
 	}
+	s.Doors = x.autoDoors()
 	return s
 }
 
+// autoDoors finds doors whose lock is a button: an unlock button on the same device as a door contact
+// (UniFi Access, and Nuki/SwitchBot-style "open" buttons).
+func (x *index) autoDoors() []DoorMapping {
+	doors := []DoorMapping{}
+	for _, b := range x.all("button") {
+		n := strings.ToLower(b.id + " " + b.name)
+		if b.device == "" || vehicles[b.platform] || !(strings.Contains(n, "unlock") || (b.platform == "unifi_access" && !strings.Contains(n, "restart"))) {
+			continue
+		}
+		d := DoorMapping{Unlock: b.id}
+		for _, e := range x.ents {
+			if e.device == b.device && e.domain == "binary_sensor" && (e.class == "door" || e.class == "lock" || e.class == "opening") {
+				d.Contact = e.id
+				break
+			}
+		}
+		if dev := x.deviceName[b.device]; dev != "" {
+			d.Name = dev
+		}
+		doors = append(doors, d)
+	}
+	return doors
+}
+
 func (s SecurityMapping) any() bool {
-	return len(s.Cameras)+len(s.Locks)+len(s.Entries)+len(s.Hazards) > 0
+	return len(s.Cameras)+len(s.Locks)+len(s.Entries)+len(s.Hazards)+len(s.Doors) > 0
 }
 
 func (x *index) autoEnergy() EnergyMapping {
@@ -348,4 +381,15 @@ func (x *index) autoMusic() MusicMapping {
 		}
 	}
 	return m
+}
+
+// cameraName drops what UniFi Protect adds to a camera's name: "Front Door - Entry High resolution channel" →
+// "Front Door - Entry".
+func cameraName(n string) string {
+	for _, suffix := range []string{" high resolution channel", " medium resolution channel", " low resolution channel", " insecure", " camera"} {
+		if strings.HasSuffix(strings.ToLower(n), suffix) && len(n) > len(suffix) {
+			n = n[:len(n)-len(suffix)]
+		}
+	}
+	return strings.TrimSpace(n)
 }

@@ -674,3 +674,32 @@ func TestAListedAddonWritesTheLayoutFromInsideHomeAssistant(t *testing.T) {
 		t.Errorf("an IPv6 peer wrote the layout: %d", w.Code)
 	}
 }
+
+func TestHelloSaysWhichVersionsFit(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	g := gateway(ha, Identity{Login: "owner@example.com"})
+	hello := func(ua string) map[string]any {
+		r := httptest.NewRequest("GET", "/atrium/hello", nil)
+		r.Header.Set("User-Agent", ua)
+		w := httptest.NewRecorder()
+		g.ServeHTTP(w, r)
+		var m map[string]any
+		json.Unmarshal(w.Body.Bytes(), &m)
+		return m
+	}
+	if m := hello("Atrium/0.4 (iOS 27.0)"); m["update"] != true || m["minApp"] != minApp || m["atrium"] != float64(contract) || m["version"] != version {
+		t.Errorf("an old app should be told to update: %v", m)
+	}
+	if m := hello("Atrium/0.10 (iOS 27.0)"); m["update"] != false {
+		t.Errorf("0.10 is newer than 0.5: %v", m)
+	}
+	if m := hello("Mozilla/5.0"); m["update"] != false {
+		t.Errorf("a browser is not the app: %v", m)
+	}
+	for _, c := range [][3]string{{"0.9", "0.10", "y"}, {"0.5", "0.5", ""}, {"1", "0.9", ""}, {"0.5", "0.5.1", "y"}} {
+		if olderThan(c[0], c[1]) != (c[2] == "y") {
+			t.Errorf("olderThan(%s, %s)", c[0], c[1])
+		}
+	}
+}

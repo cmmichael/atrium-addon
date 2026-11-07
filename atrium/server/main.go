@@ -28,6 +28,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -40,7 +42,15 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.7.1"
+const version = "0.8.0"
+
+// The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
+// this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
+const contract = 1
+
+// The oldest app this add-on serves well. Raised only when the app must have something newer; hello says
+// update: true to an older one (its User-Agent says which it is), which then asks to be updated.
+const minApp = "0.5"
 
 // Person is a Tailscale login that may use the gateway, optionally as a Home Assistant user of its own.
 type Person struct {
@@ -376,8 +386,9 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 	if r.URL.Path == "/atrium/hello" {
 		// Who the app is to this house. Answered to anyone on the tailnet, so the app can say why not.
 		w.Header().Set("Content-Type", "application/json")
+		app := appVersion(r.UserAgent())
 		json.NewEncoder(w).Encode(map[string]any{
-			"atrium": 1, "version": version, "home": g.homeName(r.Context()),
+			"atrium": contract, "version": version, "minApp": minApp, "update": app != "" && olderThan(app, minApp), "home": g.homeName(r.Context()),
 			"login": id.Login, "name": id.Name, "device": id.Device, "allowed": ok, "as": g.upstreamFor(id).As, "configures": ok && g.mayConfigure(id),
 		})
 		return
@@ -399,6 +410,8 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 	}
 	up := g.upstreamFor(id)
 	switch {
+	case r.URL.Path == "/atrium/clips":
+		g.serveClips(w, r)
 	case r.URL.Path == "/atrium/setup":
 		g.mu.Lock()
 		setup := g.setup
@@ -933,4 +946,32 @@ func main() {
 	g.mu.Unlock()
 	fmt.Fprintln(os.Stderr)
 	serve(plain, "http")
+}
+
+var appUA = regexp.MustCompile(`\bAtrium/(\d+(?:\.\d+)*)`)
+
+// appVersion is the app's version from its User-Agent ("Atrium/0.7 (iOS 27.0)"); "" when it is not the app.
+func appVersion(ua string) string {
+	if m := appUA.FindStringSubmatch(ua); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// olderThan compares dotted versions numerically: 0.10 is newer than 0.9; a missing part is 0.
+func olderThan(a, b string) bool {
+	pa, pb := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		var x, y int
+		if i < len(pa) {
+			x, _ = strconv.Atoi(pa[i])
+		}
+		if i < len(pb) {
+			y, _ = strconv.Atoi(pb[i])
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return false
 }

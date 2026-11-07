@@ -282,7 +282,7 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 			roomOrderKey[ar.id] = *rc.Order
 		}
 		for _, id := range ids {
-			if domain(id) == "media_player" {
+			if domain(id) == "media_player" && ar.id != unassignedRoom { // a speaker is its room's; Unassigned is not a room
 				h.Names[id] = firstOf(m.Names[id], name)
 			} else {
 				h.Names[id] = firstOf(m.Names[id], short(haName(id), name))
@@ -398,12 +398,36 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 		h.Security.Locks = visible("security", s.Locks)
 		h.Security.Entries = visible("security", s.Entries)
 		h.Security.Hazards = visible("security", s.Hazards)
+		doors := s.Doors
+		if doors == nil {
+			doors = x.autoDoors()
+		}
+		for _, door := range doors {
+			if id := exists("security", door.Unlock); id != "" && !hidden(id) {
+				contact := exists("security", door.Contact)
+				h.Security.Doors = append(h.Security.Doors, Door{Unlock: id, Contact: contact, Name: firstOf(door.Name, m.Names[id], haName(firstOf(contact, id)))})
+			}
+		}
+		for _, cam := range h.Security.Cameras {
+			types := d.CameraStreams[cam]
+			switch {
+			case contains(types, "hls"):
+				h.Security.Streams[cam] = "hls"
+			case contains(types, "web_rtc"):
+				h.Security.Streams[cam] = "webrtc"
+			}
+		}
 		for _, entry := range sortedKeys(s.CameraFor) {
 			if e, cam := exists("security", entry), exists("security", s.CameraFor[entry]); e != "" && cam != "" {
 				h.Security.CameraFor[e] = cam
 			}
 		}
-		for _, id := range concat(h.Security.Cameras, h.Security.Doorbells, h.Security.Locks, h.Security.Entries, h.Security.Hazards) {
+		for _, id := range concat(h.Security.Cameras, h.Security.Doorbells) {
+			if h.Names[id] == "" {
+				h.Names[id] = firstOf(m.Names[id], cameraName(haName(id)))
+			}
+		}
+		for _, id := range concat(h.Security.Locks, h.Security.Entries, h.Security.Hazards) {
 			if h.Names[id] == "" {
 				h.Names[id] = firstOf(m.Names[id], haName(id))
 			}
@@ -429,6 +453,34 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 			if h.Names[id] == "" {
 				h.Names[id] = firstOf(m.Names[id], haName(id))
 			}
+		}
+	}
+	// Music Assistant: each speaker's twin, by device name (MA makes a device per player it mirrors).
+	if mu := music; mu != nil && len(h.Speakers) > 0 {
+		entry := ""
+		twins := map[string]string{}
+		for _, e := range x.all("media_player") {
+			if e.platform != "music_assistant" {
+				continue
+			}
+			if reg := x.registry[e.id]; reg != nil && entry == "" {
+				entry, _ = reg["config_entry_id"].(string)
+			}
+			if n := strings.ToLower(firstOf(x.deviceName[e.device], e.name)); n != "" {
+				twins[n] = e.id
+			}
+		}
+		if entry != "" {
+			ma := &MusicAssistant{Entry: entry, Players: map[string]string{}}
+			for _, id := range h.Speakers {
+				e := byID[id]
+				if x.byID[id].platform == "music_assistant" {
+					ma.Players[id] = id
+				} else if t := twins[strings.ToLower(firstOf(x.deviceName[e.device], e.name))]; t != "" {
+					ma.Players[id] = t
+				}
+			}
+			h.MusicAssistant = ma
 		}
 	}
 	// The owner's renames win over everything.

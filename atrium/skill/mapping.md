@@ -81,6 +81,8 @@ security:                         # the Security screen; absent = no Security ta
   locks: [lock.front_door, lock.back_door]
   entries: [binary_sensor.front_door, binary_sensor.garage_door]   # door, window and gate contacts
   hazards: [binary_sensor.smoke_hall, binary_sensor.leak_laundry]  # smoke, gas, CO, leak sensors
+  doors:                          # doors whose lock is a button (UniFi Access); absent = the add-on's guess, [] = none
+    - { unlock: button.front_door_unlock, contact: binary_sensor.front_door, name: Front door }
 
 energy:                           # the Energy screen; absent = no Energy tab
   solar_power: sensor.pv_power                   # W or kW: the apps read the sensor's unit
@@ -125,7 +127,14 @@ camera's or doorbell's own speaker. Music Assistant's copies of players that alr
 - **energy**: a power sensor named solar/pv/production, one named consumption/house/home/load/main panel/total,
   the day's energy sensors likewise, the twelve circuits drawing the most right now as consumers, the first
   flow-rate sensor as water flow and a daily water sensor as water today.
-- **music**: media players with device class `speaker`, less the exclusions above.
+- **music**: media players with device class `speaker`, less the exclusions above. When Music Assistant is there,
+  each speaker is paired with its Music Assistant player by device name, for search, favourites, play and moving
+  music between rooms.
+- **doors**: a button named unlock (or any UniFi Access button) on the same device as a door contact is a door
+  with a lock; shown with the locks, unlocking asks for Face ID.
+- **cameras**: how each one streams comes from Home Assistant (HLS through the add-on for UniFi Protect, WebRTC
+  for Nest); a WebRTC-only camera has no still. Clips come from the camera's media source when it has one
+  (UniFi Protect). A UniFi doorbell's second "package" channel is not listed.
 
 `atrium_auto` (MCP) shows the guesses as they stand, in this file's shape, so they can be copied and corrected.
 
