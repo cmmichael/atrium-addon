@@ -19,6 +19,6 @@ no cloud account, no passwords: Tailscale knows who you are.
 1. Start Atrium and press **Open Web UI**.
 2. Press **Sign in to Tailscale**. Once.
 3. Open the Atrium app on your phone and scan the code.
-4. Your rooms are already there. Have Claude fill in the Security, Energy and Music screens with the **atrium-mapping** skill (the set-up page says how).
+4. Your house is already there. Where a guess is wrong, have Claude fix it with the **atrium-mapping** skill (the set-up page says how).
 
 Who can use it, and how the layout works, are in the **Documentation** tab.

@@ -592,6 +592,9 @@ func TestTheMCPServerMakesTheLayout(t *testing.T) {
 	if text, _ := call(g, "atrium_mapping_get", `{}`); !strings.Contains(text, "light.ghost") {
 		t.Errorf("get after put: %q", text)
 	}
+	if text, isErr := call(g, "atrium_auto", `{}`); isErr || !strings.Contains(text, "version: 2") || strings.Contains(text, "rooms:") {
+		t.Errorf("atrium_auto should be the add-on's guesses in the file's shape, with no rooms: %v %q", isErr, text)
+	}
 	if text, _ := call(g, "atrium_layout_status", `{}`); !strings.Contains(text, `"rooms": 1`) {
 		t.Errorf("status: %q", text)
 	}

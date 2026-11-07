@@ -17,22 +17,22 @@ import (
 // judgment: the Home readouts, Security, Energy and Music. Its contract is docs/mapping.md in the repository.
 type Mapping struct {
 	Version int            `yaml:"version"`
-	Name    string         `yaml:"name"`
-	Floors  []FloorMapping `yaml:"floors"` // overrides by floor id: name, rank
-	Rooms   []RoomMapping  `yaml:"rooms"`  // overrides by area id (an id that is not an area makes a room of its own)
-	Hide    []string       `yaml:"hide"`   // house-wide: entity ids, globs (switch.*_identify) and integrations (integration:tesla)
-	Scenes  []SceneMapping `yaml:"scenes"` // these first, in this order, with these names; every other scene follows
-	Home    HomeMapping    `yaml:"home"`
+	Name    string         `yaml:"name,omitempty"`
+	Floors  []FloorMapping `yaml:"floors,omitempty"` // overrides by floor id: name, rank
+	Rooms   []RoomMapping  `yaml:"rooms,omitempty"`  // overrides by area id (an id that is not an area makes a room of its own)
+	Hide    []string       `yaml:"hide,omitempty"`   // house-wide: entity ids, globs (switch.*_identify) and integrations (integration:tesla)
+	Scenes  []SceneMapping `yaml:"scenes,omitempty"` // these first, in this order, with these names; every other scene follows
+	Home    HomeMapping    `yaml:"home,omitempty"`
 	// Pointers: an absent section means no tab; an empty one means a tab with nothing in it yet.
-	Security *SecurityMapping  `yaml:"security"`
-	Energy   *EnergyMapping    `yaml:"energy"`
-	Music    *MusicMapping     `yaml:"music"`
-	Names    map[string]string `yaml:"names"`
+	Security *SecurityMapping  `yaml:"security,omitempty"`
+	Energy   *EnergyMapping    `yaml:"energy,omitempty"`
+	Music    *MusicMapping     `yaml:"music,omitempty"`
+	Names    map[string]string `yaml:"names,omitempty"`
 }
 
 type FloorMapping struct {
 	ID   string `yaml:"id"`
-	Name string `yaml:"name"`
+	Name string `yaml:"name,omitempty"`
 	Rank *int   `yaml:"rank"` // lower first; unranked floors follow in Home Assistant's level order
 }
 
@@ -41,13 +41,13 @@ const None = "none"
 
 type RoomMapping struct {
 	ID          string   `yaml:"id"`
-	Name        string   `yaml:"name"`
+	Name        string   `yaml:"name,omitempty"`
 	Floor       string   `yaml:"floor"`
 	Icon        string   `yaml:"icon"`
-	Rank        *int     `yaml:"rank"`        // lower first; unranked rooms follow by name
-	Hide        Hide     `yaml:"hide"`        // true: the whole room; a list: these entities in it
-	Thermostat  string   `yaml:"thermostat"`  // a climate entity, or "none" for no thermostat here
-	Temperature string   `yaml:"temperature"` // a sensor, or "none" for no readout
+	Rank        *int     `yaml:"rank"`           // lower first; unranked rooms follow by name
+	Hide        Hide     `yaml:"hide,omitempty"` // true: the whole room; a list: these entities in it
+	Thermostat  string   `yaml:"thermostat"`     // a climate entity, or "none" for no thermostat here
+	Temperature string   `yaml:"temperature"`    // a sensor, or "none" for no readout
 	Humidity    string   `yaml:"humidity"`
 	Entities    []string `yaml:"entities"` // shown here as well, wherever Home Assistant put them
 }
@@ -78,15 +78,15 @@ func (h Hide) IsZero() bool { return !h.All && len(h.Entities) == 0 }
 
 type SceneMapping struct {
 	Entity string `yaml:"entity"`
-	Name   string `yaml:"name"`
+	Name   string `yaml:"name,omitempty"`
 }
 
 type HomeMapping struct {
-	Weather            string   `yaml:"weather"`
-	OutdoorTemperature string   `yaml:"outdoor_temperature"`
-	IndoorTemperature  string   `yaml:"indoor_temperature"`
-	Alarm              string   `yaml:"alarm"`
-	People             []string `yaml:"people"`
+	Weather            string   `yaml:"weather,omitempty"`
+	OutdoorTemperature string   `yaml:"outdoor_temperature,omitempty"`
+	IndoorTemperature  string   `yaml:"indoor_temperature,omitempty"`
+	Alarm              string   `yaml:"alarm,omitempty"`
+	People             []string `yaml:"people,omitempty"`
 }
 
 func (h HomeMapping) set() bool {
@@ -94,26 +94,26 @@ func (h HomeMapping) set() bool {
 }
 
 type SecurityMapping struct {
-	Cameras   []string          `yaml:"cameras"`
-	Doorbells []string          `yaml:"doorbells"`
-	CameraFor map[string]string `yaml:"camera_for"`
-	Locks     []string          `yaml:"locks"`
-	Entries   []string          `yaml:"entries"`
-	Hazards   []string          `yaml:"hazards"`
+	Cameras   []string          `yaml:"cameras,omitempty"`
+	Doorbells []string          `yaml:"doorbells,omitempty"`
+	CameraFor map[string]string `yaml:"camera_for,omitempty"`
+	Locks     []string          `yaml:"locks,omitempty"`
+	Entries   []string          `yaml:"entries,omitempty"`
+	Hazards   []string          `yaml:"hazards,omitempty"`
 }
 
 type EnergyMapping struct {
-	SolarPower string   `yaml:"solar_power"`
-	LoadPower  []string `yaml:"load_power"`
-	SolarToday string   `yaml:"solar_today"`
-	UsedToday  string   `yaml:"used_today"`
-	Consumers  []string `yaml:"consumers"`
-	WaterFlow  string   `yaml:"water_flow"`
-	WaterToday string   `yaml:"water_today"`
+	SolarPower string   `yaml:"solar_power,omitempty"`
+	LoadPower  []string `yaml:"load_power,omitempty"`
+	SolarToday string   `yaml:"solar_today,omitempty"`
+	UsedToday  string   `yaml:"used_today,omitempty"`
+	Consumers  []string `yaml:"consumers,omitempty"`
+	WaterFlow  string   `yaml:"water_flow,omitempty"`
+	WaterToday string   `yaml:"water_today,omitempty"`
 }
 
 type MusicMapping struct {
-	Speakers []string `yaml:"speakers"`
+	Speakers []string `yaml:"speakers,omitempty"`
 }
 
 // Empty says whether the file adds nothing: no overrides and no custom screen.

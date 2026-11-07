@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/cmmichael/atrium/addon/atrium/server/house"
+	"gopkg.in/yaml.v3"
 )
 
 // The add-on is an MCP server too (Streamable HTTP, JSON-RPC over POST /mcp), so any Claude that can reach it —
@@ -76,7 +77,7 @@ func (g *Gateway) mcpCall(ctx context.Context, id Identity, method string, param
 			"protocolVersion": mcpProtocol,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "atrium", "version": version},
-			"instructions":    "Atrium draws the rooms from Home Assistant's areas by itself. One file, atrium.yaml, adds what needs judgment: the custom screens (Home readouts, Security, Energy, Music) and overrides on the rooms (hide, rank, rename, thermostat). To write it: read atrium_contract and atrium_skill, look at the house with atrium_home (and atrium_draft for a starting point), then atrium_mapping_put, which checks the file and reports what Home Assistant does not have.",
+			"instructions":    "Atrium draws the rooms from Home Assistant's areas by itself and guesses the custom screens (Home readouts, Security, Energy, Music). One file, atrium.yaml, overrides what it got wrong: a section replaces that guess, room entries hide, rank, rename or fix a thermostat. To write it: read atrium_contract and atrium_skill, see the guesses with atrium_auto and the house with atrium_home, then atrium_mapping_put, which checks the file and reports what Home Assistant does not have.",
 		}, nil
 	case "ping":
 		return map[string]any{}, nil
@@ -109,6 +110,8 @@ var mcpTools = []map[string]any{
 			"area":   map[string]any{"type": "string", "description": "only this area id"},
 		}}},
 	{"name": "atrium_draft", "description": "A draft atrium.yaml made by the skill's draft script from the registries: the custom screens (home readouts, security, energy, music), a room override where an area has two thermostats, scripts offered as scenes. No rooms: Atrium draws those. Guesses carry a trailing '# check'. Review it (see atrium_skill), then atrium_mapping_put.",
+		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
+	{"name": "atrium_auto", "description": "The add-on's own decisions for the custom screens right now (home readouts, security, energy, music), as YAML in atrium.yaml's shape: what the apps show while the file has no such section. Read it before writing one; a section in the file replaces the guess wholesale.",
 		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 	{"name": "atrium_mapping_get", "description": "The current atrium.yaml, as saved.",
 		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
@@ -146,6 +149,16 @@ func (g *Gateway) mcpTool(ctx context.Context, id Identity, name string, args ma
 		return homeText(d, str("domain"), str("area")), false, nil
 	case "atrium_draft":
 		return g.draft(ctx)
+	case "atrium_auto":
+		d, err := g.dump(ctx)
+		if err != nil {
+			return "Home Assistant did not answer: " + err.Error(), true, nil
+		}
+		out, err := yaml.Marshal(house.AutoMapping(d))
+		if err != nil {
+			return err.Error(), true, nil
+		}
+		return "# What the add-on decides by itself right now, in atrium.yaml's shape. Keep what is right by leaving it out of\n# the file; put a section in the file to replace that guess wholesale; add room overrides for the rest.\n" + string(out), false, nil
 	case "atrium_mapping_get":
 		data, err := os.ReadFile(g.MappingPath)
 		if err != nil {

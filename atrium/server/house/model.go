@@ -26,7 +26,7 @@ type Room struct {
 type SceneRef struct {
 	Entity string `json:"entity"`
 	Name   string `json:"name"`
-	Group  string `json:"group,omitempty"`
+	Room   string `json:"room,omitempty"` // the room it belongs to (its area), when it has one: a room scene, not a house scene
 }
 
 // Summary is the whole-house readouts.

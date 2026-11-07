@@ -9,10 +9,11 @@ writes anything. Entities in no area go to an **Unassigned** room; rooms on no f
 
 - **Overrides** on the automatic rooms: hide a room or an entity, rank rooms and floors, rename, move a room to
   another floor, pick the thermostat, borrow an entity from elsewhere, drop a whole integration.
-- **The custom screens**, which need judgment: the Home screen's readouts (weather, inside and outside
-  temperature, alarm, people), **Security** (which cameras, which is the doorbell, which entries and hazards),
-  **Energy** (solar, grid, the consumers worth watching, water) and **Music** (the speakers). Each is empty until
-  the file fills it; an absent section means no tab.
+- **The custom screens**, where the add-on's guess may be wrong: the Home screen's readouts (weather, inside and
+  outside temperature, alarm, people), **Security** (which cameras, which is the doorbell, which entries and
+  hazards), **Energy** (solar, grid, the consumers worth watching, water) and **Music** (the speakers). The add-on
+  guesses each from what Home Assistant has (below); a section in the file replaces that guess wholesale, and an
+  empty section (`security: {}`) turns the screen off.
 
 The file lives in the add-on's own folder: `/addon_configs/df84f1fd_atrium/atrium.yaml` on the Home Assistant
 machine (the Terminal add-on sees that path; it is part of the add-on's backups). Only that folder is visible to the
@@ -60,7 +61,7 @@ hide:                             # house-wide: never show these anywhere
   - light.garage_workbench        # one entity
   - integration:tesla_fleet       # everything from an integration (its platform name)
 
-scenes:                           # these chips first, in this order; every other scene follows by name
+scenes:                           # these chips first, in this order; every other scene follows by recency of use
   - entity: scene.movie
     name: "🎬 Film"               # default: the scene's name; a leading emoji becomes the chip's glyph
   - entity: script.goodnight      # scripts are not chips unless listed
@@ -107,6 +108,26 @@ spans room temperature (so a fridge is not a thermostat); a `media_player` that 
 then by name. The room's temperature readout is the area's own temperature entity, else a temperature sensor there
 reading a plausible room temperature; humidity likewise. `none` turns a readout (or the thermostat) off when the
 automatic pick is wrong and there is nothing better: a water-pipe sensor in the garage, say.
+
+Left out of rooms altogether: anything from a car integration, a wall tablet or browser (browser_mod, Fully
+Kiosk), an appliance's own switches (Miele, Home Connect, LG ThinQ, SmartThings), and a camera's or doorbell's
+own speaker. Music Assistant's copies of players that already exist are not speakers.
+
+## What the add-on guesses for the custom screens
+
+- **home**: the first `weather.*` (`weather.forecast_home` or `weather.home` when there is one), the first
+  `alarm_control_panel.*`, every `person.*`, and as the outdoor temperature a temperature sensor with "outdoor",
+  "outside" or "exterior" in its name.
+- **security**: every camera; a camera is a doorbell when its name says so or its device has a doorbell event or
+  sensor; every lock; entries are garage, gate and door covers plus door, window, garage-door, opening and gate
+  binary sensors; hazards are smoke, gas, CO, moisture and safety sensors; `camera_for` pairs an entry with the
+  camera on the same device, else in the same area. Cars are left out of all of it.
+- **energy**: a power sensor named solar/pv/production, one named consumption/house/home/load/main panel/total,
+  the day's energy sensors likewise, the twelve circuits drawing the most right now as consumers, the first
+  flow-rate sensor as water flow and a daily water sensor as water today.
+- **music**: media players with device class `speaker`, less the exclusions above.
+
+`atrium_auto` (MCP) shows the guesses as they stand, in this file's shape, so they can be copied and corrected.
 
 A version 1 file (rooms listed in full) still reads: its rooms become overrides that borrow what they list.
 

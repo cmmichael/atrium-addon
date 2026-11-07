@@ -48,6 +48,9 @@ func smallHome() Dump {
 		reg("binary_sensor.smoke", "kitchen", "", "demo", false), reg("media_player.kitchen", "kitchen", "", "sonos", false),
 		reg("switch.kitchen_kettle", "kitchen", "", "demo", false), reg("climate.hall", "", "", "demo", false),
 		reg("sensor.shed_pipe_temperature", "shed", "", "demo", false),
+		reg("light.kiosk_screen", "", "", "browser_mod", false), reg("camera.front", "", "bell", "unifiprotect", false),
+		reg("media_player.front_speaker", "", "bell", "unifiprotect", false), reg("binary_sensor.front_doorbell", "", "bell", "unifiprotect", false),
+		reg("binary_sensor.front_door", "", "bell", "demo", false), reg("scene.bed_night", "bed", "", "hue", false),
 	}
 	st := func(id, state, attrs string) {
 		a, _ := j(attrs).(map[string]any)
@@ -67,6 +70,12 @@ func smallHome() Dump {
 	st("media_player.kitchen", "idle", `{"friendly_name":"Kitchen","device_class":"speaker"}`)
 	st("switch.kitchen_kettle", "off", `{"friendly_name":"Kitchen Kettle"}`)
 	st("sensor.shed_pipe_temperature", "18.5", `{"friendly_name":"Shed pipe","device_class":"temperature","unit_of_measurement":"°C"}`)
+	st("light.kiosk_screen", "on", `{"friendly_name":"Kiosk screen"}`)
+	st("camera.front", "idle", `{"friendly_name":"Front"}`)
+	st("media_player.front_speaker", "idle", `{"friendly_name":"Front speaker","device_class":"speaker"}`)
+	st("binary_sensor.front_doorbell", "off", `{"device_class":"occupancy"}`)
+	st("binary_sensor.front_door", "off", `{"friendly_name":"Front door","device_class":"door"}`)
+	st("scene.bed_night", "2026-01-02T00:00:00+00:00", `{"friendly_name":"Night"}`)
 	st("weather.forecast_home", "sunny", `{}`)
 	st("person.a", "home", `{}`)
 	st("alarm_control_panel.house", "disarmed", `{}`)
@@ -158,10 +167,17 @@ func TestTheRoomsAreDrawnFromHomeAssistantWithNoMappingAtAll(t *testing.T) {
 	eq(t, "shed readout", h.Rooms[2].Temperature, "sensor.shed_pipe_temperature") // a plausible room temperature there
 	eq(t, "unassigned", h.Rooms[3].Entities, []string{"climate.hall"})            // in no area, but shown
 	eq(t, "island", h.Names["light.kitchen_island"], "Island lights")             // Home Assistant's name, shortened for the room
-	eq(t, "scenes", h.Scenes, []SceneRef{{Entity: "scene.movie", Name: "Movie"}})
-	eq(t, "weather", h.Summary.Weather, "") // the custom screens wait for the file
-	eq(t, "hazards", h.Security.Hazards, []string{})
-	eq(t, "speakers", h.Speakers, []string{})
+	// The custom screens are the add-on's own guesses until the file says otherwise.
+	eq(t, "weather", h.Summary.Weather, "weather.forecast_home")
+	eq(t, "people", h.Summary.People, []string{"person.a"})
+	eq(t, "alarm", h.Summary.Alarm, "alarm_control_panel.house")
+	eq(t, "hazards", h.Security.Hazards, []string{"binary_sensor.smoke"})
+	eq(t, "entries", h.Security.Entries, []string{"binary_sensor.front_door"})
+	eq(t, "camera for the door", h.Security.CameraFor, map[string]string{"binary_sensor.front_door": "camera.front"})
+	eq(t, "doorbells", h.Security.Doorbells, []string{"camera.front"})
+	eq(t, "speakers", h.Speakers, []string{"media_player.kitchen"})    // not the doorbell's own speaker, not the kiosk
+	eq(t, "unassigned", h.Rooms[3].Entities, []string{"climate.hall"}) // the kiosk "light" and the camera's speaker are not controls
+	eq(t, "scenes", h.Scenes, []SceneRef{{Entity: "scene.movie", Name: "Movie"}, {Entity: "scene.bed_night", Name: "Night", Room: "bed"}})
 	if !(Mapping{}).Empty() || (Mapping{}).Custom() {
 		t.Error("an empty mapping must say so")
 	}
@@ -181,8 +197,8 @@ func TestTheMappingOverridesTheRoomsAndFillsTheScreens(t *testing.T) {
 	eq(t, "shed readout", h.Rooms[3].Temperature, "")            // none: not even the automatic pick
 	eq(t, "island", h.Names["light.kitchen_island"], "Island")   // the mapping's name
 	eq(t, "problems", problems, []string{"room garden: Home Assistant has no light.missing", "home: Home Assistant has no person.gone"})
-	eq(t, "scenes", h.Scenes, []SceneRef{{Entity: "scene.movie", Name: "🎬 Film"}})
-	eq(t, "locks", h.Security.Locks, []string{}) // not mapped: nothing is guessed on the custom screens
+	eq(t, "scenes", h.Scenes, []SceneRef{{Entity: "scene.movie", Name: "🎬 Film"}, {Entity: "scene.bed_night", Name: "Night", Room: "bed"}})
+	eq(t, "entries", h.Security.Entries, []string{}) // the file's security section replaces the guess wholesale
 	eq(t, "hazards", h.Security.Hazards, []string{"binary_sensor.smoke"})
 	eq(t, "energy", h.Energy.Consumers, []string{}) // no energy section: an empty screen, which the apps hide
 	eq(t, "speakers", h.Speakers, []string{"media_player.kitchen"})

@@ -12,7 +12,8 @@ machine; the Atrium add-on itself sees it as `/config/atrium.yaml`; part of Atri
 
 - **The custom screens**, which need judgment: `home` (weather, inside and outside temperature, alarm, people),
   `security` (cameras, the doorbell, entries, hazards), `energy` (solar, grid, consumers, water) and `music`
-  (the speakers). Each stays empty until the file fills it.
+  (the speakers). The add-on guesses each from what Home Assistant has; a section in the file replaces that
+  guess wholesale. Start from the guesses: `atrium_auto` shows them in the file's shape.
 - **Overrides** on the automatic rooms, only where they look wrong: hide a room or an entity, rank rooms and
   floors, rename, move a room to a floor, pick the thermostat, borrow an entity, drop an integration.
 
@@ -27,7 +28,8 @@ and on its set-up page.
 
 Atrium is an MCP server and an HTTP API; use whichever you can reach. Its tools are this skill (`atrium_skill`),
 the contract (`atrium_contract`), the house as Home Assistant has it (`atrium_home`, filter by domain or area),
-a draft of the custom screens (`atrium_draft`, the script below run inside the add-on), the current file
+the add-on's own guesses for the custom screens (`atrium_auto`; `atrium_draft` runs the script below for the
+same with `# check` marks), the current file
 (`atrium_mapping_get`), saving with checks (`atrium_mapping_put`) and the status (`atrium_layout_status`). With
 it, drafting and delivering are tool calls; `skills/atrium-mapping/draft.py` is only for when you cannot reach
 Atrium at all.

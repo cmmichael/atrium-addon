@@ -28,11 +28,12 @@ Atrium draws the rooms itself from Home Assistant: one room per area, on its flo
 shades, fans, locks, thermostat and speaker that area has. Add a device in Home Assistant and it is in Atrium a
 moment later; nothing to write. Devices in no area sit in an **Unassigned** room.
 
-What needs judgment is one file, `atrium.yaml` in Atrium's own folder (`/addon_configs/df84f1fd_atrium/` on the
-Home Assistant machine, included in backups; Atrium sees nothing else of Home Assistant's files): the Home
-screen's readouts, and what the Security, Energy and Music screens show — plus any room you want hidden,
-ranked, renamed, moved, or given the right thermostat. Nothing in the file is guessed, so nothing wrong appears.
-A Claude writes it for your house with the **atrium-mapping** skill:
+The Security, Energy and Music screens, and the Home screen's readouts, are guessed from what Home Assistant
+has: cameras, doorbells, door and window contacts, smoke and leak sensors, solar and grid sensors, speakers.
+Where a guess is wrong — or a room should be hidden, ranked, renamed, moved, or given the right thermostat —
+one file says so: `atrium.yaml` in Atrium's own folder (`/addon_configs/df84f1fd_atrium/` on the Home Assistant
+machine, included in backups; Atrium sees nothing else of Home Assistant's files). A Claude writes it for your
+house with the **atrium-mapping** skill:
 
 - **Recommended:** if you run the Claude Code app in Home Assistant, tell it to run the atrium-mapping skill from
   github.com/cmmichael/atrium-addon. It reads your house, decides the judgment calls (which camera is the doorbell, which

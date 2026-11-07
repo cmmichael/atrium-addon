@@ -6,11 +6,6 @@ import (
 	"strings"
 )
 
-// Integrations whose locks, doors and covers belong to a car, not the house.
-var vehicles = set("tesla_fleet", "tesla_custom", "teslemetry", "tessie", "toyota", "toyota_na", "bmw_connected_drive", "subaru",
-	"kia_uvo", "hyundai_kia_connect", "volvo", "volvooncall", "fordpass", "mazda", "nissan_leaf", "onstar", "polestar_api",
-	"audiconnect", "volkswagencarnet", "renault", "mbapi2020", "rivian", "lucidmotors", "porscheconnect")
-
 // The order entities take within a room.
 var roomOrder = map[string]int{"light": 0, "switch": 1, "cover": 2, "climate": 3, "fan": 4, "media_player": 5, "lock": 6}
 
@@ -21,7 +16,7 @@ const (
 )
 
 type ent struct {
-	id, domain, area, platform, name, class string
+	id, domain, area, device, platform, name, class string
 }
 
 // Render draws the house: the rooms from Home Assistant's areas, floors, devices and entities (so a new device is
@@ -32,48 +27,9 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 	var problems []string
 	problem := func(format string, args ...any) { problems = append(problems, fmt.Sprintf(format, args...)) }
 
-	// MARK: What Home Assistant has
-	deviceArea := map[string]string{}
-	for _, dev := range d.Devices {
-		if id, _ := dev["id"].(string); id != "" {
-			deviceArea[id], _ = dev["area_id"].(string)
-		}
-	}
-	registry := map[string]map[string]any{}
-	for _, e := range d.Entities {
-		if id, _ := e["entity_id"].(string); id != "" {
-			registry[id] = e
-		}
-	}
-	byID := map[string]ent{}
-	for id, st := range d.States {
-		e := registry[id]
-		if e != nil && (e["disabled_by"] != nil || e["hidden_by"] != nil || e["entity_category"] != nil) {
-			continue
-		}
-		dev, _ := e["device_id"].(string)
-		area, _ := e["area_id"].(string)
-		if area == "" {
-			area = deviceArea[dev]
-		}
-		platform, _ := e["platform"].(string)
-		name := st.str("friendly_name")
-		if name == "" {
-			name, _ = e["name"].(string)
-		}
-		if name == "" {
-			name, _ = e["original_name"].(string)
-		}
-		if name == "" {
-			name = pretty(id)
-		}
-		byID[id] = ent{id: id, domain: domain(id), area: area, platform: platform, name: name, class: st.str("device_class")}
-	}
-	ents := make([]ent, 0, len(byID))
-	for _, e := range byID {
-		ents = append(ents, e)
-	}
-	sort.Slice(ents, func(i, j int) bool { return ents[i].id < ents[j].id })
+	// MARK: What Home Assistant has, and what the add-on decides by itself
+	x := newIndex(d, m.Music)
+	byID, ents := x.byID, x.ents
 	haName := func(id string) string {
 		if e, ok := byID[id]; ok {
 			return e.name
@@ -83,6 +39,7 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 		}
 		return pretty(id)
 	}
+	shows := func(e ent) bool { return x.shows(e) }
 
 	// exists keeps an entity id Home Assistant has; anything else is dropped and reported, once.
 	reported := map[string]bool{}
@@ -170,24 +127,6 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 	}
 
 	// MARK: Rooms — one per area, plus the mapping's own, plus one for what is in no area
-	isSpeaker := map[string]bool{}
-	if m.Music != nil {
-		for _, id := range m.Music.Speakers {
-			isSpeaker[id] = true
-		}
-	}
-	var own []string // speakers by device class, less Music Assistant's mirrors of players that exist already
-	for _, e := range ents {
-		if e.domain == "media_player" && e.class == "speaker" {
-			isSpeaker[e.id] = true
-			if e.platform != "music_assistant" {
-				own = append(own, e.id)
-			}
-		}
-	}
-	if len(own) > 0 && m.Music == nil {
-		isSpeaker = set(own...)
-	}
 	moved := map[string][]string{} // the owner's moves, by room id
 	for _, id := range sortedKeys(c.Entities) {
 		if ec := c.Entities[id]; ec.Room != "" && d.States[id] != nil {
@@ -198,23 +137,6 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 	roomMapping := map[string]RoomMapping{}
 	for _, rm := range m.Rooms {
 		roomMapping[rm.ID] = rm
-	}
-	// shows says whether a room shows this entity of its own accord (the mapping and the owner can add others).
-	shows := func(e ent) bool {
-		if vehicles[e.platform] {
-			return false
-		}
-		switch e.domain {
-		case "light", "cover", "fan", "lock":
-			return true
-		case "switch":
-			return e.platform != "browser_mod" // a kiosk's screen switches are not the room's
-		case "climate":
-			return heatsARoom(d.States[e.id])
-		case "media_player":
-			return isSpeaker[e.id]
-		}
-		return false
 	}
 	type area struct {
 		id, name, floor, temp, hum string
@@ -415,32 +337,62 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 		return a.Name < b.Name
 	})
 
-	// MARK: Scenes — the mapping's first, then every other scene by name
+	// MARK: Scenes — the mapping's first, then every other scene by name; each knows its room, if it has one
+	shown := map[string]bool{}
+	for _, r := range h.Rooms {
+		shown[r.ID] = true
+	}
+	roomOf := func(area string) string {
+		if shown[area] {
+			return area
+		}
+		return ""
+	}
 	sceneSeen := map[string]bool{}
 	for _, s := range m.Scenes {
 		if id := exists("scenes", s.Entity); id != "" && !hidden(id) && !sceneSeen[id] {
 			sceneSeen[id] = true
-			h.Scenes = append(h.Scenes, SceneRef{Entity: id, Name: firstOf(c.Entities[id].Name, s.Name, m.Names[id], haName(id))})
+			h.Scenes = append(h.Scenes, SceneRef{Entity: id, Name: firstOf(c.Entities[id].Name, s.Name, m.Names[id], haName(id)), Room: roomOf(byID[id].area)})
 		}
 	}
 	var rest []SceneRef
 	for _, e := range ents {
 		if e.domain == "scene" && !sceneSeen[e.id] && !hidden(e.id) {
-			rest = append(rest, SceneRef{Entity: e.id, Name: firstOf(c.Entities[e.id].Name, m.Names[e.id], e.name)})
+			rest = append(rest, SceneRef{Entity: e.id, Name: firstOf(c.Entities[e.id].Name, m.Names[e.id], e.name), Room: roomOf(e.area)})
 		}
 	}
 	sort.SliceStable(rest, func(i, j int) bool { return rest[i].Name < rest[j].Name })
 	h.Scenes = append(h.Scenes, rest...)
 
-	// MARK: The screens only the mapping can fill
-	h.Summary.Weather = exists("home", m.Home.Weather)
-	h.Summary.OutdoorTemp = exists("home", m.Home.OutdoorTemperature)
-	h.Summary.IndoorTemp = exists("home", m.Home.IndoorTemperature)
-	h.Summary.Alarm = exists("home", m.Home.Alarm)
-	h.Summary.People = existing("home", m.Home.People)
+	// MARK: The custom screens — the file's section where there is one, else the add-on's own guess
+	home := m.Home
+	if !home.set() {
+		home = x.autoHome()
+	}
+	security, energy, music := m.Security, m.Energy, m.Music
+	if security == nil {
+		if a := x.autoSecurity(); a.any() {
+			security = &a
+		}
+	}
+	if energy == nil {
+		if a := x.autoEnergy(); a.any() {
+			energy = &a
+		}
+	}
+	if music == nil {
+		if a := x.autoMusic(); len(a.Speakers) > 0 {
+			music = &a
+		}
+	}
+	h.Summary.Weather = exists("home", home.Weather)
+	h.Summary.OutdoorTemp = exists("home", home.OutdoorTemperature)
+	h.Summary.IndoorTemp = exists("home", home.IndoorTemperature)
+	h.Summary.Alarm = exists("home", home.Alarm)
+	h.Summary.People = existing("home", home.People)
 
 	tab := func(name string) bool { v, ok := c.Tabs[name]; return !ok || v }
-	if s := m.Security; s != nil && tab("security") {
+	if s := security; s != nil && tab("security") {
 		h.Security.Cameras = visible("security", s.Cameras)
 		h.Security.Doorbells = visible("security", s.Doorbells)
 		h.Security.Locks = visible("security", s.Locks)
@@ -457,7 +409,7 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 			}
 		}
 	}
-	if e := m.Energy; e != nil && tab("energy") {
+	if e := energy; e != nil && tab("energy") {
 		h.Energy.SolarPower = exists("energy", e.SolarPower)
 		h.Energy.LoadPower = existing("energy", e.LoadPower)
 		h.Energy.SolarToday = exists("energy", e.SolarToday)
@@ -471,7 +423,7 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 			}
 		}
 	}
-	if mu := m.Music; mu != nil && tab("music") {
+	if mu := music; mu != nil && tab("music") {
 		h.Speakers = visible("music", mu.Speakers)
 		for _, id := range h.Speakers {
 			if h.Names[id] == "" {
