@@ -51,6 +51,7 @@ func smallHome() Dump {
 		reg("light.kiosk_screen", "", "", "browser_mod", false), reg("camera.front", "", "bell", "unifiprotect", false),
 		reg("media_player.front_speaker", "", "bell", "unifiprotect", false), reg("binary_sensor.front_doorbell", "", "bell", "unifiprotect", false),
 		reg("binary_sensor.front_door", "", "bell", "demo", false), reg("scene.bed_night", "bed", "", "hue", false),
+		reg("light.oven_light", "kitchen", "", "miele", false),
 	}
 	st := func(id, state, attrs string) {
 		a, _ := j(attrs).(map[string]any)
@@ -71,6 +72,7 @@ func smallHome() Dump {
 	st("switch.kitchen_kettle", "off", `{"friendly_name":"Kitchen Kettle"}`)
 	st("sensor.shed_pipe_temperature", "18.5", `{"friendly_name":"Shed pipe","device_class":"temperature","unit_of_measurement":"°C"}`)
 	st("light.kiosk_screen", "on", `{"friendly_name":"Kiosk screen"}`)
+	st("light.oven_light", "off", `{"friendly_name":"Oven light"}`)
 	st("camera.front", "idle", `{"friendly_name":"Front"}`)
 	st("media_player.front_speaker", "idle", `{"friendly_name":"Front speaker","device_class":"speaker"}`)
 	st("binary_sensor.front_doorbell", "off", `{"device_class":"occupancy"}`)
@@ -161,7 +163,8 @@ func TestTheRoomsAreDrawnFromHomeAssistantWithNoMappingAtAll(t *testing.T) {
 	eq(t, "rooms", names(h.Rooms), []string{"Kitchen", "Bedroom", "Shed", "Unassigned"})   // every area with something to control, by floor
 	eq(t, "hidden rooms", names(h.HiddenRooms), []string{"Empty"})                         // an area with nothing in it
 	kitchen := h.Rooms[0]
-	// Lights (one through its device's area), the kettle, the thermostat but not the fridge, the speaker; not the hidden light.
+	// Lights (one through its device's area), the kettle, the thermostat but not the fridge, the speaker; not the
+	// hidden light, not the oven's own light.
 	eq(t, "kitchen", kitchen.Entities, []string{"light.kitchen_island", "light.kitchen_group", "switch.kitchen_kettle", "climate.downstairs", "media_player.kitchen"})
 	eq(t, "shed", h.Rooms[2].Entities, []string{"light.shed"})                    // the car's lock is not a door
 	eq(t, "shed readout", h.Rooms[2].Temperature, "sensor.shed_pipe_temperature") // a plausible room temperature there

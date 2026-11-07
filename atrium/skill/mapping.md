@@ -110,8 +110,8 @@ reading a plausible room temperature; humidity likewise. `none` turns a readout 
 automatic pick is wrong and there is nothing better: a water-pipe sensor in the garage, say.
 
 Left out of rooms altogether: anything from a car integration, a wall tablet or browser (browser_mod, Fully
-Kiosk), an appliance's own switches (Miele, Home Connect, LG ThinQ, SmartThings), and a camera's or doorbell's
-own speaker. Music Assistant's copies of players that already exist are not speakers.
+Kiosk), an appliance integration's own lights, switches and climates (Miele, Home Connect, LG ThinQ…), and a
+camera's or doorbell's own speaker. Music Assistant's copies of players that already exist are not speakers.
 
 ## What the add-on guesses for the custom screens
 

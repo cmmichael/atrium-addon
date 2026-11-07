@@ -18,24 +18,23 @@ var vehicles = set("tesla_fleet", "tesla_custom", "teslemetry", "tessie", "toyot
 // Integrations that are a wall tablet or a browser: their "lights" and "players" are a screen, not the room's.
 var kiosks = set("browser_mod", "fully_kiosk", "wallpanel")
 
-// Integrations whose switches are an appliance's own (oven, dishwasher, fridge), not a room control.
-var appliances = set("miele", "home_connect", "lg_thinq", "smartthings")
+// Integrations that are appliances and nothing else (ovens, dishwashers, fridges): their lights, switches and
+// climates are the appliance's own, not the room's. Hubs that also carry real lights (SmartThings) are not here.
+var appliances = set("miele", "home_connect", "lg_thinq", "bosch_shc", "electrolux", "whirlpool")
 
 var entryClasses = set("door", "window", "garage_door", "opening", "gate")
 var hazardClasses = set("smoke", "gas", "carbon_monoxide", "moisture", "safety")
 
 // shows says whether a room shows this entity of its own accord: what a person walks in and touches.
 func (x *index) shows(e ent) bool {
-	if vehicles[e.platform] || kiosks[e.platform] {
+	if vehicles[e.platform] || kiosks[e.platform] || appliances[e.platform] {
 		return false
 	}
 	switch e.domain {
-	case "light", "cover", "fan", "lock":
+	case "light", "cover", "fan", "lock", "switch":
 		return true
-	case "switch":
-		return !appliances[e.platform]
 	case "climate":
-		return !appliances[e.platform] && heatsARoom(x.d.States[e.id])
+		return heatsARoom(x.d.States[e.id])
 	case "media_player":
 		return x.isSpeaker[e.id]
 	}
