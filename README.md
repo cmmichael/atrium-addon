@@ -24,9 +24,10 @@ In Home Assistant's Terminal app:
     curl -fsSL https://raw.githubusercontent.com/cmmichael/atrium-addon/main/reset.sh | sh
 
 That stops and uninstalls Atrium (its settings, layout and Tailscale sign-in go with it), removes any copy in the
-local apps folder, and reloads the store. Two things it cannot reach: remove the **atrium** machine in your
+local apps folder, and reloads the store. To keep the layout for the next install, run it as
+`KEEP_LAYOUT=1 sh` instead of `sh`. Two things it cannot reach: remove the **atrium** machine in your
 Tailscale admin console (or the next install is named `atrium-1`), and delete the app from your phone if you want
 it fresh too. Then press the button above again.
 
 Published from the Atrium repository by `tools/publish-addon.sh`; the source of truth is there. Current version:
-**0.5.8** (atrium@bdc7431).
+**0.5.8** (atrium@873d69d).
