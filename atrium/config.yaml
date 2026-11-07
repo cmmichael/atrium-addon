@@ -1,5 +1,5 @@
 name: Atrium
-version: "0.4.6"
+version: "0.5.0"
 slug: atrium
 description: Your house in the Atrium app and on the web, from anywhere, over your tailnet
 url: https://github.com/cmmichael/atrium-addon
@@ -11,6 +11,9 @@ init: false
 startup: services
 boot: auto
 homeassistant_api: true
+map:
+  - type: homeassistant_config   # /homeassistant/atrium.yaml: the declared layout (docs/mapping.md), read only
+    read_only: true
 ingress: true
 ingress_port: 8099
 panel_icon: mdi:home-heart

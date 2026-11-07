@@ -40,7 +40,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.4.6"
+const version = "0.5.0"
 
 // Person is a Tailscale login that may use the gateway, optionally as a Home Assistant user of its own.
 type Person struct {
@@ -85,14 +85,20 @@ type Gateway struct {
 	Core  *url.URL // Home Assistant itself: /local/ files, and people with a token of their own
 	Names []string // this machine's names and addresses: the only Hosts answered
 
-	ConfigPath string   // where the owner's overrides are kept ("" = not saved)
-	WebDir     string   // the built web app to serve ("" = none)
-	Supervisor []string // the addresses the Supervisor's ingress proxy connects from: the only peers the ingress listener believes
+	ConfigPath  string   // where the owner's preferences are kept ("" = not saved)
+	MappingPath string   // the declared layout, atrium.yaml in Home Assistant's configuration folder
+	WebDir      string   // the built web app to serve ("" = none)
+	Supervisor  []string // the addresses the Supervisor's ingress proxy connects from: the only peers the ingress listener believes
 
 	mu         sync.Mutex
 	home       string
 	config     house.Config
-	generation int // bumped on every configuration change
+	mapping    house.Mapping
+	mappingErr string    // why the file was refused, if it was (the last good mapping stays in use)
+	mappingAt  time.Time // the file's modification time last read
+	problems   []string  // what the last render could not use
+	rendered   bool      // there has been a render (the first one is logged whatever it found)
+	generation int       // bumped on every configuration or mapping change
 	house      built
 	building   singleflight.Group
 	admins     map[string]bool // Home Assistant user id → is an administrator
@@ -108,6 +114,16 @@ type Setup struct {
 	AuthURL string `json:"authURL,omitempty"` // the Tailscale sign-in link, while needs-login
 	Address string `json:"address,omitempty"` // https://atrium.<tailnet>.ts.net (or http://…), once up
 	Owner   string `json:"owner,omitempty"`   // the login that signed the machine in, once known
+	Layout  Layout `json:"layout"`
+}
+
+// Layout is what the set-up page says about the mapping: is there one, and what in it could not be used.
+type Layout struct {
+	Path     string   `json:"path"`               // where atrium.yaml is read from, as Home Assistant sees it
+	Exists   bool     `json:"exists"`             // there is a file
+	Rooms    int      `json:"rooms"`              // rooms it names
+	Error    string   `json:"error,omitempty"`    // the file was refused (bad YAML, a room without an id…)
+	Problems []string `json:"problems,omitempty"` // what the last render dropped
 }
 
 // isMine says whether a request's Host names this machine (with or without a port).
@@ -282,6 +298,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		g.mu.Lock()
 		setup := g.setup
 		setup.Owner = g.Owner
+		setup.Layout = Layout{Path: "/config/atrium.yaml", Exists: !g.mappingAt.IsZero(), Rooms: len(g.mapping.Rooms), Error: g.mappingErr, Problems: g.problems}
 		g.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
@@ -470,6 +487,53 @@ func fileExists(p string) bool {
 	return err == nil && !f.IsDir()
 }
 
+// readMapping reads atrium.yaml when it changed (or first), keeps the last good one when the new one is refused,
+// and bumps the generation so the next house.json is rendered from it. Returns whether anything changed.
+func (g *Gateway) readMapping() bool {
+	if g.MappingPath == "" {
+		return false
+	}
+	info, err := os.Stat(g.MappingPath)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		if g.mappingAt.IsZero() && g.mapping.Empty() && g.mappingErr == "" {
+			return false
+		}
+		g.mapping, g.mappingErr, g.mappingAt = house.Mapping{}, "", time.Time{}
+		g.generation++
+		g.house = built{} // rebuild on the next request
+		log.Printf("mapping: %s is gone; the house is empty until there is one", g.MappingPath)
+		return true
+	case err != nil:
+		return false
+	case info.ModTime().Equal(g.mappingAt):
+		return false
+	}
+	g.mappingAt = info.ModTime()
+	g.generation++
+	g.house = built{} // rebuild on the next request
+	m, err := house.LoadMapping(g.MappingPath)
+	if err != nil {
+		g.mappingErr = err.Error()
+		log.Printf("mapping: %s refused: %v (the previous layout stays)", g.MappingPath, err)
+		return true
+	}
+	g.mapping, g.mappingErr = m, ""
+	log.Printf("mapping: read %s: %d rooms", g.MappingPath, len(m.Rooms))
+	return true
+}
+
+// watchMapping re-reads the file whenever it changes. Home Assistant's configuration folder is a plain mount, so
+// the modification time is looked at every few seconds rather than watched.
+func (g *Gateway) watchMapping() {
+	for {
+		time.Sleep(3 * time.Second)
+		g.readMapping()
+	}
+}
+
 func mustURL(s string) *url.URL {
 	u, err := url.Parse(s)
 	if err != nil || u.Host == "" {
@@ -517,6 +581,9 @@ func main() {
 			g.Names = append(g.Names, host)
 		}
 		g.WebDir = env("ATRIUM_WEB", "")
+		g.MappingPath = env("ATRIUM_MAPPING", "")
+		g.readMapping()
+		go g.watchMapping()
 		switch os.Getenv("ATRIUM_DEV_SETUP") { // lets the panel's set-up card be seen without a tailnet
 		case "needs-login":
 			g.setup = Setup{State: "needs-login", AuthURL: "https://login.tailscale.com/a/0123456789abcd"}
@@ -542,6 +609,12 @@ func main() {
 	if web := env("ATRIUM_WEB", "/app/web"); fileExists(filepath.Join(web, "index.html")) {
 		g.WebDir = web
 	}
+	// The declared layout lives in Home Assistant's configuration folder (mapped read-only at /homeassistant).
+	g.MappingPath = env("ATRIUM_MAPPING", "/homeassistant/atrium.yaml")
+	if !g.readMapping() {
+		log.Printf("mapping: no %s yet; the house is empty until the atrium-mapping skill (or you) writes one", g.MappingPath)
+	}
+	go g.watchMapping()
 
 	// The Home Assistant side: the sidebar panel, through the Supervisor's ingress. Only the Supervisor's own
 	// address is believed on that port (resolved once; 172.30.32.2 is its usual address).

@@ -1,5 +1,5 @@
-// Package house builds the app's layout (house.json) from what Home Assistant knows about itself, a small
-// configuration of overrides, and, when the house publishes one, the 3D twin's entities.json.
+// Package house renders the app's layout (house.json) from the declared mapping (atrium.yaml, see
+// docs/mapping.md), what Home Assistant knows about its entities, and the owner's in-app preferences.
 //
 // The JSON field names are the contract with the apps: the iOS app decodes this with its own House type.
 package house
@@ -114,5 +114,4 @@ type Dump struct {
 	Entities []map[string]any // config/entity_registry/list
 	Devices  []map[string]any // config/device_registry/list
 	States   map[string]*State
-	Overlay  map[string]any // the twin's entities.json, or nil
 }

@@ -3,8 +3,8 @@
 Atrium is a native app for Home Assistant on iPhone and iPad, and the same house on the web. Open it and your home
 is there: lights, shades, climate, locks, cameras, energy and music, laid out by room, the way you think about it.
 
-**Nothing to set up.** Atrium reads your rooms and devices from Home Assistant and lays them out by itself. A new
-device appears in its room on its own.
+**A layout made for your house.** Atrium's mapping skill has Claude read your rooms and devices and lay the house
+out the way you think about it. One file says what every screen shows; nothing is guessed.
 
 **Works from anywhere.** Atrium joins your tailnet, so your phone reaches home wherever it is. No port forwarding,
 no cloud account, no passwords: Tailscale knows who you are.
@@ -18,5 +18,6 @@ no cloud account, no passwords: Tailscale knows who you are.
 1. Start Atrium and press **Open Web UI**.
 2. Press **Sign in to Tailscale**. Once.
 3. Open the Atrium app on your phone and scan the code.
+4. Have Claude write your layout with the **atrium-mapping** skill (the set-up page says how).
 
-That's it. Who can use it, and how the layout works, are in the **Documentation** tab.
+Who can use it, and how the layout works, are in the **Documentation** tab.

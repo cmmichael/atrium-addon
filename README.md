@@ -14,8 +14,11 @@ port forwarding; nothing to type.
 Turn on **Show in sidebar** to keep the set-up page in Home Assistant's sidebar. Everything else, including who may
 use it, is in [atrium/DOCS.md](atrium/DOCS.md).
 
+The layout is a file, `/config/atrium.yaml`, written for your house by the
+[atrium-mapping skill](skills/atrium-mapping/SKILL.md): point a Claude that can reach your Home Assistant at it.
+
 Starting over? In Home Assistant's Terminal, `curl -fsSL https://raw.githubusercontent.com/cmmichael/atrium-addon/main/reset.sh | sh`
 removes Atrium completely (settings and Tailscale sign-in included); then press the button again.
 
 Published from the Atrium repository by `tools/publish-addon.sh`; the source of truth is there. Current version:
-**0.4.6** (atrium@4a33ad0).
+**0.5.0** (atrium@b69483c).

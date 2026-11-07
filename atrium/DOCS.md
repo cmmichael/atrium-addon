@@ -23,12 +23,20 @@ their own, add them under **People** with a long-lived access token from their H
 
 ## The layout
 
-Atrium reads your floors, areas, devices and entities and lays the house out by itself. A new light appears in its
-room on its own; one that is removed disappears; one that comes back finds its old settings. Each room shows its
-lights, switches, shades, fans, thermostat, locks and speakers.
+Atrium shows exactly what one file says: `/config/atrium.yaml` in Home Assistant's configuration folder — which
+rooms, on which floors, with which lights, shades, thermostat and speakers; the Home screen's readouts; what the
+Security, Energy and Music screens show. Nothing is guessed, so nothing wrong ever appears; a screen is empty until
+the file fills it.
 
-In the app you can hide, rename, move and reorder rooms and things, and pick a room's thermostat. These settings
-are kept in the add-on, so every device shows the same house.
+The file is written for your house by the **atrium-mapping** skill: give it to a Claude that can reach your Home
+Assistant (Claude Code on the machine, or with a long-lived access token). It drafts the layout from your areas and
+devices, reviews the judgment calls (which thermostat heats which room, which camera is the doorbell, which sensors
+are solar and grid), writes the file, and checks the result. The skill is in the add-on repository under
+`skills/atrium-mapping`, with the file's full contract (`mapping.md`). You can also write the file by hand.
+
+Atrium re-reads the file whenever it changes and reports, in its log and on its set-up page, anything in it that
+Home Assistant does not have. In the app you can still hide, rename, move and reorder rooms and things; those
+preferences are kept separately and survive a new layout.
 
 ## Good to know
 
@@ -39,6 +47,6 @@ are kept in the add-on, so every device shows the same house.
 - With HTTPS certificates enabled for your tailnet (Tailscale admin console → DNS), the address is `https://`;
   otherwise plain HTTP inside the tailnet's own encryption.
 - Nothing inside Home Assistant is changed: no custom integration, no change to its sign-in.
-- The layout settings live in `/data/config.json` and can be read and written at `/atrium/config` (JSON, `GET` and
-  `PUT`, administrators only): `name`, `tabs`, `floors`, `rooms` (by area id: `hidden`, `name`, `floor`, `order`,
-  `thermostat`, `entities`) and `entities` (by entity id: `hidden`, `name`, `room`, `show`).
+- The in-app preferences live in `/data/config.json` and can be read and written at `/atrium/config` (JSON, `GET`
+  and `PUT`, administrators only): `name`, `tabs`, `floors`, `rooms` (by room id: `hidden`, `name`, `floor`,
+  `order`, `thermostat`, `entities`) and `entities` (by entity id: `hidden`, `name`, `room`).

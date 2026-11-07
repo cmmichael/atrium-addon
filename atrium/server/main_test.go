@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/coder/websocket"
 )
@@ -257,7 +259,21 @@ func TestTheHouseIsBuiltHereAndTheConfigurationApplies(t *testing.T) {
 	ha := fakeHA(t)
 	defer ha.Close()
 	g := gateway(ha, Identity{Login: "owner@example.com"})
+	// No mapping yet: an empty house, and the set-up page is told.
 	code, h := get(t, g, "/atrium/house")
+	if code != 200 || len(h["rooms"].([]any)) != 0 {
+		t.Fatalf("house without a mapping: %d %v", code, h)
+	}
+	if _, setup := get(t, g, "/atrium/setup"); setup["layout"].(map[string]any)["exists"] != false {
+		t.Errorf("setup should say there is no layout: %v", setup)
+	}
+	// The mapping appears (the skill wrote it): the next house.json renders it, and a missing entity is reported.
+	g.MappingPath = filepath.Join(t.TempDir(), "atrium.yaml")
+	os.WriteFile(g.MappingPath, []byte("rooms:\n  - id: den\n    entities: [light.den_lamp, light.nowhere]\n"), 0o644)
+	if !g.readMapping() {
+		t.Fatal("the mapping was not read")
+	}
+	code, h = get(t, g, "/atrium/house")
 	if code != 200 || h["name"] != "Test Home" {
 		t.Fatalf("house: %d %v", code, h)
 	}
@@ -268,6 +284,19 @@ func TestTheHouseIsBuiltHereAndTheConfigurationApplies(t *testing.T) {
 	}
 	if names := h["names"].(map[string]any); names["light.den_lamp"] != "Lamp" {
 		t.Errorf("names: %v", names)
+	}
+	if _, setup := get(t, g, "/atrium/setup"); fmt.Sprint(setup["layout"].(map[string]any)["problems"]) != "[room den: Home Assistant has no light.nowhere]" {
+		t.Errorf("setup should report the missing entity: %v", setup["layout"])
+	}
+	// A broken file is refused and the last good layout stays.
+	os.WriteFile(g.MappingPath, []byte("rooms: [\n"), 0o644)
+	os.Chtimes(g.MappingPath, time.Now(), time.Now().Add(time.Second))
+	g.readMapping()
+	if _, h := get(t, g, "/atrium/house"); len(h["rooms"].([]any)) != 1 {
+		t.Errorf("a refused mapping should keep the previous layout: %v", h)
+	}
+	if _, setup := get(t, g, "/atrium/setup"); setup["layout"].(map[string]any)["error"] == nil {
+		t.Errorf("setup should show the file's error: %v", setup["layout"])
 	}
 
 	r := httptest.NewRequest("PUT", "/atrium/config", strings.NewReader(`{"rooms":{"den":{"name":"Study"}},"entities":{"light.den_lamp":{"name":"Reading lamp"}}}`))
