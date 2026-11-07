@@ -40,7 +40,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.5.9"
+const version = "0.6.0"
 
 // Person is a Tailscale login that may use the gateway, optionally as a Home Assistant user of its own.
 type Person struct {
@@ -99,9 +99,6 @@ type Gateway struct {
 	// must pass both, on every request: container addresses are reused when containers restart.
 	ResolveAddon func(slug string) []string
 	CheckAddon   func(slug, ip string) bool
-	// Drafts a layout from the house itself, used while there is no atrium.yaml (nil: the skill's draft script,
-	// run here with Python). Tests put a fixed draft in.
-	Draft func(ctx context.Context) (string, error)
 
 	mu         sync.Mutex
 	home       string
@@ -110,11 +107,8 @@ type Gateway struct {
 	mappingErr string    // why the file was refused, if it was (the last good mapping stays in use)
 	mappingAt  time.Time // the file's modification time last read
 	problems   []string  // what the last render could not use
+	rooms      int       // rooms in the last render
 	rendered   bool      // there has been a render (the first one is logged whatever it found)
-	auto       house.Mapping
-	autoAt     time.Time // when the automatic draft was made (zero: never)
-	autoErr    string    // why it could not be, if it could not
-	autoUsed   bool      // the house being served is the automatic draft
 	generation int       // bumped on every configuration or mapping change
 	house      built
 	building   singleflight.Group
@@ -137,20 +131,17 @@ type Setup struct {
 
 // Layout is what the set-up page says about the mapping: is there one, and what in it could not be used.
 type Layout struct {
-	Path      string   `json:"path"`                // where atrium.yaml is read from, as Home Assistant sees it
-	Exists    bool     `json:"exists"`              // there is a file
-	Rooms     int      `json:"rooms"`               // rooms it names
-	Error     string   `json:"error,omitempty"`     // the file was refused (bad YAML, a room without an id…)
-	Problems  []string `json:"problems,omitempty"`  // what the last render dropped
-	Auto      bool     `json:"auto"`                // the house shown is the add-on's own draft, not the file
-	AutoRooms int      `json:"autoRooms,omitempty"` // rooms in that draft
-	AutoError string   `json:"autoError,omitempty"` // why there is no draft either
+	Path     string   `json:"path"`               // where atrium.yaml is read from, as Home Assistant sees it
+	Exists   bool     `json:"exists"`             // there is a file
+	Custom   bool     `json:"custom"`             // it fills at least one of the screens only it can (Home readouts, Security, Energy, Music)
+	Rooms    int      `json:"rooms"`              // rooms the house has, as drawn
+	Error    string   `json:"error,omitempty"`    // the file was refused (bad YAML, a room without an id…)
+	Problems []string `json:"problems,omitempty"` // what the last render dropped
 }
 
 // layout is the Layout as things stand; g.mu held.
 func (g *Gateway) layout() Layout {
-	return Layout{Path: g.mappingHostPath(), Exists: !g.mappingAt.IsZero(), Rooms: len(g.mapping.Rooms), Error: g.mappingErr, Problems: g.problems,
-		Auto: g.autoUsed, AutoRooms: len(g.auto.Rooms), AutoError: g.autoErr}
+	return Layout{Path: g.mappingHostPath(), Exists: !g.mappingAt.IsZero(), Custom: g.mapping.Custom(), Rooms: g.rooms, Error: g.mappingErr, Problems: g.problems}
 }
 
 // isMine says whether a request's Host names this machine (with or without a port).
@@ -641,7 +632,7 @@ func (g *Gateway) readMapping() bool {
 		g.mapping, g.mappingErr, g.mappingAt = house.Mapping{}, "", time.Time{}
 		g.generation++
 		g.house = built{} // rebuild on the next request
-		log.Printf("mapping: %s is gone; the house is empty until there is one", g.MappingPath)
+		log.Printf("mapping: %s is gone; the rooms stay, the custom screens are empty until there is one", g.MappingPath)
 		return true
 	case err != nil:
 		return false
@@ -658,7 +649,7 @@ func (g *Gateway) readMapping() bool {
 		return true
 	}
 	g.mapping, g.mappingErr = m, ""
-	log.Printf("mapping: read %s: %d rooms", g.MappingPath, len(m.Rooms))
+	log.Printf("mapping: read %s: %d room overrides, custom screens: %v", g.MappingPath, len(m.Rooms), m.Custom())
 	return true
 }
 
@@ -784,10 +775,10 @@ func main() {
 	g.Slug = addonSlug(token)
 	g.MappingPath = env("ATRIUM_MAPPING", "/config/atrium.yaml") // the add-on's own folder (addon_config), not Home Assistant's
 	if !g.readMapping() {
-		log.Printf("mapping: no %s yet; the house is drawn automatically until the atrium-mapping skill (or you) writes one", g.MappingPath)
+		log.Printf("mapping: no %s yet; the rooms are drawn from Home Assistant's areas, and the custom screens wait for the atrium-mapping skill (or you)", g.MappingPath)
 	}
 	go g.watchMapping()
-	go g.houseJSON(context.Background()) // the first render (and the automatic draft, if there is no layout) before anyone asks
+	go g.houseJSON(context.Background()) // the first render before anyone asks
 
 	// The Home Assistant side: the sidebar panel, through the Supervisor's ingress. Only the Supervisor's own
 	// address is believed on that port (resolved once; 172.30.32.2 is its usual address).

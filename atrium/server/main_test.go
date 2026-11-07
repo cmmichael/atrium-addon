@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -260,13 +259,14 @@ func TestTheHouseIsBuiltHereAndTheConfigurationApplies(t *testing.T) {
 	ha := fakeHA(t)
 	defer ha.Close()
 	g := gateway(ha, Identity{Login: "owner@example.com"})
-	// No mapping yet: an empty house, and the set-up page is told.
+	// No mapping yet: the rooms are drawn from Home Assistant's areas (the lamp, not its settings entity), the
+	// custom screens are empty, and the set-up page is told.
 	code, h := get(t, g, "/atrium/house")
-	if code != 200 || len(h["rooms"].([]any)) != 0 {
+	if code != 200 || fmt.Sprint(h["rooms"].([]any)[0].(map[string]any)["entities"]) != "[light.den_lamp]" {
 		t.Fatalf("house without a mapping: %d %v", code, h)
 	}
-	if _, setup := get(t, g, "/atrium/setup"); setup["layout"].(map[string]any)["exists"] != false {
-		t.Errorf("setup should say there is no layout: %v", setup)
+	if _, setup := get(t, g, "/atrium/setup"); setup["layout"].(map[string]any)["exists"] != false || setup["layout"].(map[string]any)["custom"] != false || setup["layout"].(map[string]any)["rooms"] != 1.0 {
+		t.Errorf("setup should say there is no layout, but one room: %v", setup)
 	}
 	// The mapping appears (the skill wrote it): the next house.json renders it, and a missing entity is reported.
 	g.MappingPath = filepath.Join(t.TempDir(), "atrium.yaml")
@@ -669,65 +669,5 @@ func TestAListedAddonWritesTheLayoutFromInsideHomeAssistant(t *testing.T) {
 	in.ServeHTTP(w, r)
 	if w.Code != 403 {
 		t.Errorf("an IPv6 peer wrote the layout: %d", w.Code)
-	}
-}
-
-func TestTheHouseIsDrawnAutomaticallyUntilThereIsALayout(t *testing.T) {
-	ha := fakeHA(t)
-	defer ha.Close()
-	g := gateway(ha, Identity{Login: "owner@example.com"})
-	g.MappingPath = filepath.Join(t.TempDir(), "atrium.yaml")
-	drafts := 0
-	g.Draft = func(context.Context) (string, error) {
-		drafts++
-		return "rooms:\n  - id: den\n    name: Den (drawn)\n    entities: [light.den_lamp]\n", nil
-	}
-	// No file: the draft is the house, and everyone is told it is the draft.
-	code, h := get(t, g, "/atrium/house")
-	if code != 200 || h["auto"] != true || len(h["rooms"].([]any)) != 1 || h["rooms"].([]any)[0].(map[string]any)["name"] != "Den (drawn)" {
-		t.Fatalf("house without a layout should be the draft: %d %v", code, h)
-	}
-	_, setup := get(t, g, "/atrium/setup")
-	if l := setup["layout"].(map[string]any); l["exists"] != false || l["auto"] != true || l["autoRooms"] != 1.0 {
-		t.Errorf("setup should say the draft is showing: %v", l)
-	}
-	// It is drawn once, not on every render.
-	g.mu.Lock()
-	g.house = built{}
-	g.mu.Unlock()
-	get(t, g, "/atrium/house")
-	if drafts != 1 {
-		t.Errorf("the draft was made %d times", drafts)
-	}
-	// A layout that names nothing Home Assistant has (the editor's sample, say) is reported, and the draft stays up.
-	os.WriteFile(g.MappingPath, []byte("rooms:\n  - id: kitchen\n    entities: [light.kitchen]\n"), 0o644)
-	g.readMapping()
-	_, h = get(t, g, "/atrium/house")
-	if h["auto"] != true || len(h["rooms"].([]any)) != 1 {
-		t.Errorf("a layout with nothing to show should leave the draft up: %v", h)
-	}
-	_, setup = get(t, g, "/atrium/setup")
-	if l := setup["layout"].(map[string]any); l["exists"] != true || l["auto"] != true || fmt.Sprint(l["problems"]) != "[room kitchen: Home Assistant has no light.kitchen]" {
-		t.Errorf("setup should report the file and say the draft is showing: %v", l)
-	}
-	// A real layout replaces the draft.
-	os.WriteFile(g.MappingPath, []byte("rooms:\n  - id: den\n    name: Study\n    entities: [light.den_lamp]\n"), 0o644)
-	os.Chtimes(g.MappingPath, time.Now(), time.Now().Add(time.Second))
-	g.readMapping()
-	_, h = get(t, g, "/atrium/house")
-	if h["auto"] != nil || h["rooms"].([]any)[0].(map[string]any)["name"] != "Study" {
-		t.Errorf("the layout should replace the draft: %v", h)
-	}
-	if _, setup := get(t, g, "/atrium/setup"); setup["layout"].(map[string]any)["auto"] != false {
-		t.Errorf("setup should say the layout is showing: %v", setup["layout"])
-	}
-	// No draft either (no Python here, say): the house is empty, and the set-up page says why.
-	g2 := gateway(ha, Identity{Login: "owner@example.com"})
-	g2.Draft = func(context.Context) (string, error) { return "", errors.New("no Python") }
-	if _, h := get(t, g2, "/atrium/house"); len(h["rooms"].([]any)) != 0 || h["auto"] != nil {
-		t.Errorf("house with no layout and no draft: %v", h)
-	}
-	if _, setup := get(t, g2, "/atrium/setup"); setup["layout"].(map[string]any)["autoError"] != "no Python" {
-		t.Errorf("setup should say why there is no draft: %v", setup["layout"])
 	}
 }

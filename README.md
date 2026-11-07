@@ -14,7 +14,8 @@ port forwarding; nothing to type.
 Turn on **Show in sidebar** to keep the set-up page in Home Assistant's sidebar. Everything else, including who may
 use it, is in [atrium/DOCS.md](atrium/DOCS.md).
 
-The layout is a file, `/config/atrium.yaml`, written for your house by the
+Rooms come from your Home Assistant areas and follow them. The Security, Energy and Music screens, and any
+tidying of the rooms, are one file, `atrium.yaml`, written for your house by the
 [atrium-mapping skill](skills/atrium-mapping/SKILL.md): point a Claude that can reach your Home Assistant at it.
 
 ## Uninstall, or start over
@@ -30,4 +31,4 @@ Tailscale admin console (or the next install is named `atrium-1`), and delete th
 it fresh too. Then press the button above again.
 
 Published from the Atrium repository by `tools/publish-addon.sh`; the source of truth is there. Current version:
-**0.5.9** (atrium@17efda1).
+**0.6.0** (atrium@8621b11).

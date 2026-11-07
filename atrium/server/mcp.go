@@ -76,7 +76,7 @@ func (g *Gateway) mcpCall(ctx context.Context, id Identity, method string, param
 			"protocolVersion": mcpProtocol,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "atrium", "version": version},
-			"instructions":    "Atrium renders one declared layout, atrium.yaml. To make or change it: read atrium_contract and atrium_skill, look at the house with atrium_home (and atrium_draft for a starting point), write the file, then atrium_mapping_put, which checks it and reports what Home Assistant does not have.",
+			"instructions":    "Atrium draws the rooms from Home Assistant's areas by itself. One file, atrium.yaml, adds what needs judgment: the custom screens (Home readouts, Security, Energy, Music) and overrides on the rooms (hide, rank, rename, thermostat). To write it: read atrium_contract and atrium_skill, look at the house with atrium_home (and atrium_draft for a starting point), then atrium_mapping_put, which checks the file and reports what Home Assistant does not have.",
 		}, nil
 	case "ping":
 		return map[string]any{}, nil
@@ -108,7 +108,7 @@ var mcpTools = []map[string]any{
 			"domain": map[string]any{"type": "string", "description": "only this domain, e.g. light, climate, sensor"},
 			"area":   map[string]any{"type": "string", "description": "only this area id"},
 		}}},
-	{"name": "atrium_draft", "description": "A draft atrium.yaml made by the skill's draft script from the registries: floors, one room per area with something to control, scenes, readouts, security, energy, music. Guesses carry a trailing '# check'. Review it (see atrium_skill), then atrium_mapping_put.",
+	{"name": "atrium_draft", "description": "A draft atrium.yaml made by the skill's draft script from the registries: the custom screens (home readouts, security, energy, music), a room override where an area has two thermostats, scripts offered as scenes. No rooms: Atrium draws those. Guesses carry a trailing '# check'. Review it (see atrium_skill), then atrium_mapping_put.",
 		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 	{"name": "atrium_mapping_get", "description": "The current atrium.yaml, as saved.",
 		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
@@ -116,7 +116,7 @@ var mcpTools = []map[string]any{
 		"inputSchema": map[string]any{"type": "object", "required": []string{"yaml"}, "properties": map[string]any{
 			"yaml": map[string]any{"type": "string", "description": "the whole file"},
 		}}},
-	{"name": "atrium_layout_status", "description": "Whether there is a layout, how many rooms it names, the file's error if it was refused, and what the last render could not use.",
+	{"name": "atrium_layout_status", "description": "Whether there is a layout file, whether it fills any custom screen, how many rooms the house has as drawn, the file's error if it was refused, and what the last render could not use.",
 		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 }
 
@@ -197,7 +197,7 @@ func (g *Gateway) putMapping(ctx context.Context, id Identity, data []byte) (str
 		return "Saved, but Home Assistant did not answer, so it is not rendered yet: " + err.Error(), true, nil
 	}
 	g.mu.Lock()
-	rooms, problems, path := len(g.mapping.Rooms), append([]string{}, g.problems...), g.mappingHostPath()
+	rooms, problems, path := g.rooms, append([]string{}, g.problems...), g.mappingHostPath()
 	g.mu.Unlock()
 	out, _ := json.Marshal(map[string]any{"rooms": rooms, "problems": problems, "path": path})
 	return string(out), false, nil
@@ -212,11 +212,8 @@ func (g *Gateway) draft(ctx context.Context) (string, bool, error) {
 	return text, false, nil
 }
 
-// runDraft runs the skill's draft script here, against Home Assistant through the Supervisor, unless Draft is set.
+// runDraft runs the skill's draft script here, against Home Assistant through the Supervisor.
 func (g *Gateway) runDraft(ctx context.Context) (string, error) {
-	if g.Draft != nil {
-		return g.Draft(ctx)
-	}
 	script := filepath.Join(g.SkillDir, "draft.py")
 	if _, err := os.Stat(script); err != nil {
 		return "", errors.New("the add-on has no draft script")
@@ -235,42 +232,6 @@ func (g *Gateway) runDraft(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("the draft failed: %v: %s", err, strings.TrimSpace(errs.String()))
 	}
 	return out.String(), nil
-}
-
-// How long the automatic draft is kept before it is drawn again (areas and devices change rarely), and how soon
-// it is tried again after failing.
-const autoTTL, autoRetry = 10 * time.Minute, time.Minute
-
-// autoMapping is the layout the add-on draws itself while there is no usable atrium.yaml: the skill's draft, the
-// same starting point a Claude gets, so the house shows something from the first minute. Cached; a failure keeps
-// the previous draft, if any.
-func (g *Gateway) autoMapping(ctx context.Context) house.Mapping {
-	g.mu.Lock()
-	m, at, failed := g.auto, g.autoAt, g.autoErr != ""
-	g.mu.Unlock()
-	if !at.IsZero() && time.Since(at) < autoTTL && !(failed && time.Since(at) >= autoRetry) {
-		return m
-	}
-	text, err := g.runDraft(ctx)
-	var next house.Mapping
-	if err == nil {
-		next, err = house.ParseMapping([]byte(text))
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.autoAt = time.Now()
-	if err != nil {
-		if g.autoErr != err.Error() {
-			log.Printf("automatic layout: %v", err)
-		}
-		g.autoErr = err.Error()
-		return g.auto
-	}
-	if g.autoErr != "" || len(next.Rooms) != len(g.auto.Rooms) {
-		log.Printf("automatic layout: %d rooms, drawn from the house itself", len(next.Rooms))
-	}
-	g.auto, g.autoErr = next, ""
-	return next
 }
 
 // homeText is the house as a Claude would want to read it: one line per entity, grouped by area.

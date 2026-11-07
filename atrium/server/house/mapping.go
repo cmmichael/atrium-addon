@@ -5,19 +5,23 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
-// Mapping is the declared layout, atrium.yaml: which entities play which part on which screen. Its contract
-// is docs/mapping.md in the repository. The add-on renders exactly this; it guesses nothing.
+// Mapping is atrium.yaml: what the automatic layout cannot know. The rooms are drawn from Home Assistant's areas
+// and devices on every build, so a new device appears by itself; the file carries the owner's and Claude's
+// decisions on top — rooms to hide, rank, rename or move, entities to borrow or drop — and the screens that need
+// judgment: the Home readouts, Security, Energy and Music. Its contract is docs/mapping.md in the repository.
 type Mapping struct {
 	Version int            `yaml:"version"`
 	Name    string         `yaml:"name"`
-	Floors  []FloorMapping `yaml:"floors"`
-	Rooms   []RoomMapping  `yaml:"rooms"`
-	Scenes  []SceneMapping `yaml:"scenes"`
+	Floors  []FloorMapping `yaml:"floors"` // overrides by floor id: name, rank
+	Rooms   []RoomMapping  `yaml:"rooms"`  // overrides by area id (an id that is not an area makes a room of its own)
+	Hide    []string       `yaml:"hide"`   // house-wide: entity ids, globs (switch.*_identify) and integrations (integration:tesla)
+	Scenes  []SceneMapping `yaml:"scenes"` // these first, in this order, with these names; every other scene follows
 	Home    HomeMapping    `yaml:"home"`
 	// Pointers: an absent section means no tab; an empty one means a tab with nothing in it yet.
 	Security *SecurityMapping  `yaml:"security"`
@@ -29,6 +33,7 @@ type Mapping struct {
 type FloorMapping struct {
 	ID   string `yaml:"id"`
 	Name string `yaml:"name"`
+	Rank *int   `yaml:"rank"` // lower first; unranked floors follow in Home Assistant's level order
 }
 
 type RoomMapping struct {
@@ -36,11 +41,37 @@ type RoomMapping struct {
 	Name        string   `yaml:"name"`
 	Floor       string   `yaml:"floor"`
 	Icon        string   `yaml:"icon"`
+	Rank        *int     `yaml:"rank"` // lower first; unranked rooms follow by name
+	Hide        Hide     `yaml:"hide"` // true: the whole room; a list: these entities in it
 	Thermostat  string   `yaml:"thermostat"`
 	Temperature string   `yaml:"temperature"`
 	Humidity    string   `yaml:"humidity"`
-	Entities    []string `yaml:"entities"`
+	Entities    []string `yaml:"entities"` // shown here as well, wherever Home Assistant put them
 }
+
+// Hide is `hide: true` or `hide: [light.a, switch.b]`.
+type Hide struct {
+	All      bool
+	Entities []string
+}
+
+func (h *Hide) UnmarshalYAML(n *yaml.Node) error {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		var b bool
+		if err := n.Decode(&b); err != nil {
+			return fmt.Errorf("hide: %q is neither true/false nor a list", n.Value)
+		}
+		h.All = b
+	case yaml.SequenceNode:
+		return n.Decode(&h.Entities)
+	default:
+		return errors.New("hide: must be true, false or a list of entity ids")
+	}
+	return nil
+}
+
+func (h Hide) IsZero() bool { return !h.All && len(h.Entities) == 0 }
 
 type SceneMapping struct {
 	Entity string `yaml:"entity"`
@@ -53,6 +84,10 @@ type HomeMapping struct {
 	IndoorTemperature  string   `yaml:"indoor_temperature"`
 	Alarm              string   `yaml:"alarm"`
 	People             []string `yaml:"people"`
+}
+
+func (h HomeMapping) set() bool {
+	return h.Weather != "" || h.OutdoorTemperature != "" || h.IndoorTemperature != "" || h.Alarm != "" || len(h.People) > 0
 }
 
 type SecurityMapping struct {
@@ -78,8 +113,35 @@ type MusicMapping struct {
 	Speakers []string `yaml:"speakers"`
 }
 
-// Empty says whether there is no layout at all: no file, or one that names no rooms.
-func (m Mapping) Empty() bool { return len(m.Rooms) == 0 }
+// Empty says whether the file adds nothing: no overrides and no custom screen.
+func (m Mapping) Empty() bool {
+	return m.Name == "" && len(m.Floors) == 0 && len(m.Rooms) == 0 && len(m.Hide) == 0 && len(m.Scenes) == 0 &&
+		!m.Home.set() && m.Security == nil && m.Energy == nil && m.Music == nil && len(m.Names) == 0
+}
+
+// Custom says whether the file has any of the screens that only it can fill.
+func (m Mapping) Custom() bool {
+	return m.Home.set() || m.Security != nil || m.Energy != nil || m.Music != nil
+}
+
+// hides says whether a house-wide hide rule covers this entity: its id, a glob over ids, or its integration.
+func (m Mapping) hides(id, platform string) bool {
+	for _, rule := range m.Hide {
+		switch {
+		case strings.HasPrefix(rule, "integration:"):
+			if platform != "" && strings.TrimPrefix(rule, "integration:") == platform {
+				return true
+			}
+		case rule == id:
+			return true
+		default:
+			if ok, _ := path.Match(rule, id); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // ParseMapping reads atrium.yaml. Structural errors (bad YAML, a room without an id, an id that is not an
 // entity id) are errors: the file is refused as a whole. Entities that do not exist are not errors here; the
@@ -91,8 +153,8 @@ func ParseMapping(data []byte) (Mapping, error) {
 	if err := dec.Decode(&m); err != nil && !errors.Is(err, io.EOF) { // EOF: an empty file
 		return m, err
 	}
-	if m.Version != 0 && m.Version != 1 {
-		return m, fmt.Errorf("version %d is not known (this add-on knows version 1)", m.Version)
+	if m.Version != 0 && m.Version != 1 && m.Version != 2 {
+		return m, fmt.Errorf("version %d is not known (this add-on knows versions 1 and 2)", m.Version)
 	}
 	seen := map[string]bool{}
 	for i, r := range m.Rooms {
@@ -103,7 +165,7 @@ func ParseMapping(data []byte) (Mapping, error) {
 			return m, fmt.Errorf("room %q appears twice", r.ID)
 		}
 		seen[r.ID] = true
-		for _, id := range append([]string{r.Thermostat, r.Temperature, r.Humidity}, r.Entities...) {
+		for _, id := range concat([]string{r.Thermostat, r.Temperature, r.Humidity}, r.Entities, r.Hide.Entities) {
 			if id != "" && domain(id) == "" {
 				return m, fmt.Errorf("room %q: %q is not an entity id", r.ID, id)
 			}
@@ -115,6 +177,17 @@ func ParseMapping(data []byte) (Mapping, error) {
 	for i, f := range m.Floors {
 		if f.ID == "" {
 			return m, fmt.Errorf("floors[%d] has no id", i)
+		}
+	}
+	for i, rule := range m.Hide {
+		if strings.HasPrefix(rule, "integration:") {
+			if strings.TrimPrefix(rule, "integration:") == "" {
+				return m, fmt.Errorf("hide[%d]: integration: needs a name", i)
+			}
+			continue
+		}
+		if _, err := path.Match(rule, ""); err != nil || domain(rule) == "" {
+			return m, fmt.Errorf("hide[%d]: %q is not an entity id, a glob over entity ids, or integration:<name>", i, rule)
 		}
 	}
 	for i, s := range m.Scenes {

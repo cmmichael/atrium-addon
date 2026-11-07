@@ -71,21 +71,28 @@ func smallHome() Dump {
 	return d
 }
 
-// The mapping the atrium-mapping skill would write for smallHome.
+// What the atrium-mapping skill would write for smallHome: a few overrides, and the screens only it can fill.
 const smallMapping = `
-version: 1
+version: 2
+name: Cedar House
 floors:
-  - { id: down, name: Downstairs }
-  - { id: up, name: Upstairs }
+  - { id: up, rank: 1 }
+  - { id: other, name: Outbuildings }
 rooms:
   - id: kitchen
-    floor: down
-    entities: [light.kitchen_island, light.kitchen_group, switch.kitchen_kettle, climate.downstairs, media_player.kitchen]
+    rank: 1
+    hide: [switch.kitchen_kettle]
+    entities: [climate.hall]
   - id: bed
-    floor: up
-    entities: [cover.bed_shade]
-  - id: shed
+    name: Nora's Room
+  - id: empty
+    hide: true
+  - id: unassigned
+    hide: true
+  - id: garden
+    floor: other
     entities: [light.shed, light.missing]
+hide: ["light.*_group", "integration:tesla_fleet"]
 scenes:
   - { entity: scene.movie, name: "🎬 Film" }
 home:
@@ -97,7 +104,7 @@ security:
 music:
   speakers: [media_player.kitchen]
 names:
-  light.kitchen_group: Main
+  light.kitchen_island: Island
 `
 
 func mapped(t *testing.T, text string) Mapping {
@@ -132,23 +139,45 @@ func eq(t *testing.T, what string, got, want any) {
 	}
 }
 
-func TestTheLayoutIsExactlyTheMapping(t *testing.T) {
-	h, problems := Render(mapped(t, smallMapping), smallHome(), Config{})
+func TestTheRoomsAreDrawnFromHomeAssistantWithNoMappingAtAll(t *testing.T) {
+	h, problems := Render(Mapping{}, smallHome(), Config{})
+	eq(t, "problems", problems, []string(nil))
 	eq(t, "name", h.Name, "Test Home")
-	eq(t, "floors", floorNames(h.Floors), []string{"Downstairs", "Upstairs"}) // the shed names no floor: it joins the last one
-	eq(t, "rooms", names(h.Rooms), []string{"Kitchen", "Bedroom", "Shed"})    // area names, by floor, in the mapping's order
-	eq(t, "shed floor", h.Rooms[2].Floor, "up")
+	eq(t, "floors", floorNames(h.Floors), []string{"Downstairs", "Upstairs", "Elsewhere"}) // by level; the shed has no floor
+	eq(t, "rooms", names(h.Rooms), []string{"Kitchen", "Bedroom", "Shed", "Unassigned"})   // every area with something to control, by floor
+	eq(t, "hidden rooms", names(h.HiddenRooms), []string{"Empty"})                         // an area with nothing in it
 	kitchen := h.Rooms[0]
+	// Lights (one through its device's area), the kettle, the thermostat but not the fridge, the speaker; not the hidden light.
 	eq(t, "kitchen", kitchen.Entities, []string{"light.kitchen_island", "light.kitchen_group", "switch.kitchen_kettle", "climate.downstairs", "media_player.kitchen"})
-	eq(t, "island", h.Names["light.kitchen_island"], "Island lights") // Home Assistant's name, shortened for the room
-	eq(t, "group", h.Names["light.kitchen_group"], "Main")            // the mapping's name
-	eq(t, "kettle", h.Names["switch.kitchen_kettle"], "Kettle")
-	eq(t, "shed", h.Rooms[2].Entities, []string{"light.shed"}) // the missing light is dropped, and reported
-	eq(t, "problems", problems, []string{"room shed: Home Assistant has no light.missing", "home: Home Assistant has no person.gone"})
-	eq(t, "locks", h.Security.Locks, []string{}) // not mapped: nothing is guessed
+	eq(t, "shed", h.Rooms[2].Entities, []string{"light.shed"})         // the car's lock is not a door
+	eq(t, "unassigned", h.Rooms[3].Entities, []string{"climate.hall"}) // in no area, but shown
+	eq(t, "island", h.Names["light.kitchen_island"], "Island lights")  // Home Assistant's name, shortened for the room
+	eq(t, "scenes", h.Scenes, []SceneRef{{Entity: "scene.movie", Name: "Movie"}})
+	eq(t, "weather", h.Summary.Weather, "") // the custom screens wait for the file
+	eq(t, "hazards", h.Security.Hazards, []string{})
+	eq(t, "speakers", h.Speakers, []string{})
+	if !(Mapping{}).Empty() || (Mapping{}).Custom() {
+		t.Error("an empty mapping must say so")
+	}
+}
+
+func TestTheMappingOverridesTheRoomsAndFillsTheScreens(t *testing.T) {
+	h, problems := Render(mapped(t, smallMapping), smallHome(), Config{})
+	eq(t, "name", h.Name, "Cedar House")
+	eq(t, "floors", floorNames(h.Floors), []string{"Upstairs", "Downstairs", "Outbuildings"}) // ranked first; "other" renamed
+	eq(t, "rooms", names(h.Rooms), []string{"Nora's Room", "Kitchen", "Garden", "Shed"})      // renamed; a room of the file's own; Empty and Unassigned hidden
+	kitchen := h.Rooms[1]
+	// The kettle hidden here, the group light hidden house-wide (glob), the hall thermostat borrowed.
+	eq(t, "kitchen", kitchen.Entities, []string{"light.kitchen_island", "climate.hall", "climate.downstairs", "media_player.kitchen"})
+	eq(t, "kitchen hidden", kitchen.Hidden, []string{"light.kitchen_group", "switch.kitchen_kettle"})
+	eq(t, "garden", h.Rooms[2].Entities, []string{"light.shed"}) // borrowed; the missing light dropped and reported
+	eq(t, "shed", h.Rooms[3].Entities, []string{"light.shed"})   // still in its own area too
+	eq(t, "island", h.Names["light.kitchen_island"], "Island")   // the mapping's name
+	eq(t, "problems", problems, []string{"room garden: Home Assistant has no light.missing", "home: Home Assistant has no person.gone"})
+	eq(t, "scenes", h.Scenes, []SceneRef{{Entity: "scene.movie", Name: "🎬 Film"}})
+	eq(t, "locks", h.Security.Locks, []string{}) // not mapped: nothing is guessed on the custom screens
 	eq(t, "hazards", h.Security.Hazards, []string{"binary_sensor.smoke"})
 	eq(t, "energy", h.Energy.Consumers, []string{}) // no energy section: an empty screen, which the apps hide
-	eq(t, "scenes", h.Scenes, []SceneRef{{Entity: "scene.movie", Name: "🎬 Film"}})
 	eq(t, "speakers", h.Speakers, []string{"media_player.kitchen"})
 	eq(t, "weather", h.Summary.Weather, "weather.forecast_home")
 	eq(t, "people", h.Summary.People, []string{"person.a"})
@@ -160,17 +189,12 @@ func TestTheLayoutIsExactlyTheMapping(t *testing.T) {
 			}
 		}
 	}
-}
-
-func TestNoMappingMeansAnEmptyHouse(t *testing.T) {
-	h, problems := Render(Mapping{}, smallHome(), Config{})
-	eq(t, "rooms", len(h.Rooms), 0)
-	eq(t, "floors", len(h.Floors), 0)
-	eq(t, "problems", len(problems), 0)
-	eq(t, "weather", h.Summary.Weather, "")
-	if !(Mapping{}).Empty() {
-		t.Error("an empty mapping must say so")
-	}
+	// A new device in Home Assistant is in the house on the next render, with nothing written anywhere.
+	d := smallHome()
+	d.Entities = append(d.Entities, map[string]any{"entity_id": "fan.bed", "area_id": "bed", "platform": "demo"})
+	d.States["fan.bed"] = &State{State: "off", Attributes: map[string]any{"friendly_name": "Bedroom Fan"}}
+	h, _ = Render(mapped(t, smallMapping), d, Config{})
+	eq(t, "new fan", h.Rooms[0].Entities, []string{"cover.bed_shade", "fan.bed"})
 }
 
 func TestTheMappingIsCheckedBeforeItIsUsed(t *testing.T) {
@@ -178,7 +202,11 @@ func TestTheMappingIsCheckedBeforeItIsUsed(t *testing.T) {
 		"rooms:\n  - name: No id\n",
 		"rooms:\n  - id: a\n  - id: a\n",
 		"rooms:\n  - id: a\n    entities: [notanentity]\n",
+		"rooms:\n  - id: a\n    hide: [notanentity]\n",
+		"rooms:\n  - id: a\n    hide: maybe\n",
 		"rooms:\n  - id: a\n    thermostat: sensor.x\n",
+		"hide: [notanentity]\n",
+		"hide: [\"integration:\"]\n",
 		"version: 7\nrooms: []\n",
 		"rooms: [\n",                // not YAML
 		"rooms: []\nbedrooms: []\n", // an unknown key is a typo, not a feature
@@ -189,6 +217,10 @@ func TestTheMappingIsCheckedBeforeItIsUsed(t *testing.T) {
 	}
 	if m, err := ParseMapping(nil); err != nil || !m.Empty() {
 		t.Errorf("an empty file: %v %+v", err, m)
+	}
+	// A version 1 file (rooms listed in full) still reads: its rooms are overrides that borrow what they list.
+	if m, err := ParseMapping([]byte("version: 1\nrooms:\n  - id: den\n    entities: [light.a]\n")); err != nil || len(m.Rooms) != 1 {
+		t.Errorf("a version 1 file: %v %+v", err, m)
 	}
 }
 
@@ -213,28 +245,31 @@ func TestTheConfigurationHidesRenamesMovesAndReorders(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	h, _ := Render(mapped(t, smallMapping), smallHome(), c)
+	h, _ := Render(Mapping{}, smallHome(), c)
 	eq(t, "name", h.Name, "Our House")
-	eq(t, "floors", floorNames(h.Floors), []string{"Downstairs", "Outside", "Upstairs"}) // ordered floors first, the rest as the mapping has them
-	eq(t, "rooms", names(h.Rooms), []string{"Kitchen", "Shed"})                          // the bedroom's only control moved to the kitchen, so it is not a room any more
-	eq(t, "kitchen", h.Rooms[0].Entities, []string{"media_player.kitchen", "light.kitchen_group", "switch.kitchen_kettle", "climate.downstairs", "climate.hall", "cover.bed_shade"})
+	eq(t, "floors", floorNames(h.Floors), []string{"Downstairs", "Outside", "Upstairs", "Elsewhere"}) // ordered floors first, then by level
+	eq(t, "rooms", names(h.Rooms), []string{"Kitchen", "Shed", "Unassigned"})                         // the bedroom's only control moved to the kitchen, so it is not a room any more
+	eq(t, "kitchen", h.Rooms[0].Entities, []string{"media_player.kitchen", "light.kitchen_group", "switch.kitchen_kettle", "cover.bed_shade", "climate.hall", "climate.downstairs"})
 	eq(t, "kettle", h.Names["switch.kitchen_kettle"], "Kettle plug")
 	eq(t, "hall thermostat named for the kitchen", h.Names["climate.hall"], "Hall Thermostat")
 	if _, dormant := h.Names["light.gone"]; dormant {
 		t.Error("a dormant override leaked into the layout")
 	}
-	// The light comes back (and the mapping lists it): its override applies again, nothing to do.
+	// The light comes back: its override applies again, nothing to do.
 	d := smallHome()
 	d.Entities = append(d.Entities, map[string]any{"entity_id": "light.gone", "area_id": "shed", "platform": "demo"})
 	d.States["light.gone"] = &State{State: "on", Attributes: map[string]any{}}
-	returned, _ := Render(mapped(t, smallMapping+"  light.gone: x\n"), d, c)
+	returned, _ := Render(Mapping{}, d, c)
 	eq(t, "returned", returned.Names["light.gone"], "A light that no longer exists")
+	// The owner's taps sit on top of the file: a rank from the file, an order from the owner, the owner wins.
+	h, _ = Render(mapped(t, smallMapping), smallHome(), Config{Rooms: map[string]RoomConfig{"shed": {Order: &one}}})
+	eq(t, "owner's order", names(h.Rooms), []string{"Nora's Room", "Kitchen", "Shed", "Garden"})
 }
 
 func TestHiddenRoomsAndBadConfigs(t *testing.T) {
-	h, _ := Render(mapped(t, smallMapping), smallHome(), Config{Rooms: map[string]RoomConfig{"kitchen": {Hidden: true}}})
-	eq(t, "rooms", names(h.Rooms), []string{"Bedroom", "Shed"})
-	eq(t, "hidden rooms", names(h.HiddenRooms), []string{"Kitchen"})
+	h, _ := Render(Mapping{}, smallHome(), Config{Rooms: map[string]RoomConfig{"kitchen": {Hidden: true}}})
+	eq(t, "rooms", names(h.Rooms), []string{"Bedroom", "Shed", "Unassigned"})
+	eq(t, "hidden rooms", names(h.HiddenRooms), []string{"Empty", "Kitchen"})
 	for _, bad := range []Config{
 		{Entities: map[string]EntityConfig{"nodomain": {Hidden: true}}},
 		{Entities: map[string]EntityConfig{"light.x": {Hidden: true, Room: "kitchen"}}},

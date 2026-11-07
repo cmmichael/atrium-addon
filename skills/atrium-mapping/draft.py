@@ -4,9 +4,11 @@
     python3 draft.py [--url http://homeassistant:8123] [--token TOKEN] [-o /addon_configs/df84f1fd_atrium/atrium.yaml]
 
 Connects to the WebSocket API, reads the area, floor, device and entity registries plus every state, and writes
-a DRAFT layout following docs/mapping.md (shipped next to this script as mapping.md). Every guess carries a
-trailing "# check" comment: review them, then delete the comments. Nothing in the output is invented: every
-entity id comes from the Home Assistant it was read from.
+a DRAFT of the parts of the layout Atrium cannot draw itself (contract: mapping.md next to this script). The
+rooms it does not write: Atrium draws those from the areas on every build, so a new device appears by itself.
+What it drafts is the judgment: the Home readouts, Security, Energy and Music, plus a room override where an
+area has more than one thermostat. Every guess carries a trailing "# check" comment: review them, then delete the
+comments. Nothing in the output is invented: every entity id comes from the Home Assistant it was read from.
 
 Token: --token, else $HA_TOKEN (a long-lived access token), else $SUPERVISOR_TOKEN (inside an add-on, where the
 URL is http://supervisor/core). Standard library only: Home Assistant OS has no pip.
@@ -248,9 +250,8 @@ def build(d):
     rooms.sort(key=lambda r: (floor_rank[r['floor']], r['name']))
     out['rooms'] = rooms
 
-    # Scenes: scenes by name (build.go stops at 24); scripts after them, every one a guess.
-    scenes = sorted(by_domain('scene'), key=lambda e: e.name)[:24]
-    out['scenes'] = [(e.id, False) for e in scenes] + [(e.id, True) for e in by_domain('script')][:24]
+    # Scenes come by themselves; scripts do not, so they are offered here, every one a guess.
+    out['scenes'] = [(e.id, True) for e in by_domain('script')][:24]
 
     # The whole-house readouts.
     weather = [e.id for e in by_domain('weather')]
@@ -341,37 +342,27 @@ def emit(out, source):
     chk = lambda check: '   # check' if check else ''
     p(f"# atrium.yaml — DRAFT written by the atrium-mapping skill (draft.py) on {time.strftime('%Y-%m-%d')} from {source}.")
     p("# Review every '# check' and remove those comments once settled. Contract: mapping.md next to the skill (docs/mapping.md).")
-    p("version: 1")
+    p("# Rooms are not listed: Atrium draws them from the areas. Add a room here only to change one (hide, rank, name,")
+    p("# floor, thermostat, entities to borrow or drop); add a house-wide `hide:` for whole integrations or id patterns.")
+    p("version: 2")
     if out['name']:
         p(f"name: {scalar(out['name'])}")
     p("")
-    if out['floors']:
-        p("floors:                           # top of the list first")
-        for f in out['floors']:
-            p(f"  - id: {scalar(f['id'])}{chk(f.get('check'))}")
-            p(f"    name: {scalar(f['name'])}")
-        p("")
-    p("rooms:")
-    for r in out['rooms']:
-        p(f"  - id: {scalar(r['id'])}")
-        p(f"    name: {scalar(r['name'])}")
-        if r['floor'] and out['floors']:
-            p(f"    floor: {scalar(r['floor'])}")
-        if r['thermostat']:
-            p(f"    thermostat: {r['thermostat']}")
-        if r['temperature']:
-            p(f"    temperature: {r['temperature']}")
-        if r['humidity']:
-            p(f"    humidity: {r['humidity']}")
-        if r['entities'] or r['extra_climate']:
+    overrides = [r for r in out['rooms'] if r['extra_climate']]
+    if overrides:
+        p("rooms:")
+        for r in overrides:
+            p(f"  - id: {scalar(r['id'])}                 # {r['name']}")
+            p(f"    thermostat: {r['thermostat']}   # check: the one that heats the room")
             p("    entities:")
-            for i in r['entities']:
-                p(f"      - {i}")
             for i in r['extra_climate']:
-                p(f"      - {i}   # check: a second thermostat in this area")
-    p("")
+                p(f"      - {i}   # check: a second thermostat in this area; drop it, or keep it as a control")
+        p("")
+    else:
+        p("# rooms:                          # nothing to override: one thermostat at most per area")
+        p("")
     if out['scenes']:
-        p("scenes:                           # the chips on the Home screen")
+        p("scenes:                           # these chips first on the Home screen; every scene follows by itself")
         for eid, check in out['scenes']:
             p(f"  - entity: {eid}{chk(check)}")
         p("")
@@ -433,10 +424,6 @@ def emit(out, source):
     else:
         p("# music:                          # no media_player with device_class speaker")
         p("")
-    if out['names']:
-        p("names:                            # display names, where Home Assistant's are not right for a screen")
-        for k, v in out['names'].items():
-            p(f"  {k}: {scalar(v)}")
     return '\n'.join(w).rstrip('\n') + '\n'
 
 
@@ -459,10 +446,11 @@ def main():
     else:
         sys.stdout.write(text)
     s, e = out['security'], out['energy']
-    print(f"draft: {len(out['floors'])} floors, {len(out['rooms'])} rooms, {len(out['scenes'])} scenes, "
+    print(f"draft: {len(out['rooms'])} rooms seen ({sum(1 for r in out['rooms'] if r['extra_climate'])} overrides suggested), "
+          f"{len(out['scenes'])} scripts offered as scenes, "
           f"{len(s['cameras'])} cameras ({len(s['doorbells'])} doorbells), {len(s['locks'])} locks, {len(s['entries'])} entries, "
-          f"{len(s['hazards'])} hazards, {len(e['consumers'])} consumers, {len(out['music']['speakers'])} speakers, "
-          f"{len(out['names'])} names; {len(d['states'])} states read", file=sys.stderr)
+          f"{len(s['hazards'])} hazards, {len(e['consumers'])} consumers, {len(out['music']['speakers'])} speakers; "
+          f"{len(d['states'])} states read", file=sys.stderr)
 
 
 if __name__ == '__main__':

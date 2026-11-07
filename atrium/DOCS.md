@@ -24,20 +24,19 @@ their own, add them under **People** with a long-lived access token from their H
 
 ## The layout
 
-Atrium shows exactly what one file says: `atrium.yaml` in its own folder (`/addon_configs/df84f1fd_atrium/` on the
-Home Assistant machine, included in backups; Atrium sees nothing else of Home Assistant's files) — which
-rooms, on which floors, with which lights, shades, thermostat and speakers; the Home screen's readouts; what the
-Security, Energy and Music screens show. Nothing in the file is guessed, so nothing wrong ever appears.
+Atrium draws the rooms itself from Home Assistant: one room per area, on its floor, with the lights, switches,
+shades, fans, locks, thermostat and speaker that area has. Add a device in Home Assistant and it is in Atrium a
+moment later; nothing to write. Devices in no area sit in an **Unassigned** room.
 
-Until there is a file, Atrium draws a layout itself from your areas and devices (the same draft a Claude starts
-from), so the house is there from the first minute; the set-up page and the apps say it is the automatic one. The
-judgment calls are what it lacks, and that is what the real file is for. It is written for your house by the
-**atrium-mapping** skill, by a Claude:
+What needs judgment is one file, `atrium.yaml` in Atrium's own folder (`/addon_configs/df84f1fd_atrium/` on the
+Home Assistant machine, included in backups; Atrium sees nothing else of Home Assistant's files): the Home
+screen's readouts, and what the Security, Energy and Music screens show — plus any room you want hidden,
+ranked, renamed, moved, or given the right thermostat. Nothing in the file is guessed, so nothing wrong appears.
+A Claude writes it for your house with the **atrium-mapping** skill:
 
 - **Recommended:** if you run the Claude Code app in Home Assistant, tell it to run the atrium-mapping skill from
-  github.com/cmmichael/atrium-addon. It reads your areas and devices, decides the judgment calls (which thermostat
-  heats which room, which camera is the doorbell, which sensors are solar and grid) and writes the layout to Atrium
-  itself, once you list it under **Apps that may write the layout** in Atrium's Configuration (its slug is
+  github.com/cmmichael/atrium-addon. It reads your house, decides the judgment calls (which camera is the doorbell, which
+  sensors are solar and grid, which rooms matter most) and writes the file to Atrium itself, once you list it under **Apps that may write the layout** in Atrium's Configuration (its slug is
   `d7e97e69_claudecode`; the set-up page shows this). A listed app is trusted by its address on the apps'
   network, checked with the Supervisor on every request; an app with host networking and `NET_ADMIN` could pose
   as one, but such an app can already do anything on the machine.
