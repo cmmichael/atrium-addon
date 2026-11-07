@@ -40,7 +40,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.4.1"
+const version = "0.4.2"
 
 // Person is a Tailscale login that may use the gateway, optionally as a Home Assistant user of its own.
 type Person struct {
@@ -585,6 +585,7 @@ func main() {
 	// Who owns this machine, and what it is called, come from Tailscale's status. Right after Up the status can
 	// still be missing its user map or DNS name, so both are taken again until they are known.
 	var selfUser tailcfg.UserID
+	var scheme, dnsName string // for the set-up card's address: the scheme once the listeners are up, the name as last learnt
 	learn := func(st *ipnstate.Status) bool {
 		if st == nil || st.Self == nil {
 			return false
@@ -600,6 +601,10 @@ func main() {
 		names := []string{opts.Hostname}
 		if dns := strings.TrimSuffix(st.Self.DNSName, "."); dns != "" {
 			names = append(names, dns)
+			dnsName = dns
+			if scheme != "" { // the card's address follows the name, which can arrive after the listeners are up
+				g.setup.Address = scheme + "://" + dns
+			}
 		}
 		for _, ip := range st.TailscaleIPs {
 			names = append(names, ip.String())
@@ -663,15 +668,19 @@ func main() {
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
-	address := "http://" + name
+	g.mu.Lock()
+	scheme = "http"
+	g.mu.Unlock()
 	if secure, err := srv.ListenTLS("tcp", ":443"); err == nil {
 		go serve(secure, "https")
-		address = "https://" + name
+		g.mu.Lock()
+		scheme = "https"
+		g.mu.Unlock()
 	} else {
 		log.Printf("No HTTPS (%v). Plain HTTP inside the tailnet's encryption is used instead; enable HTTPS certificates in the Tailscale admin console to add it.", err)
 	}
 	g.mu.Lock()
-	g.setup = Setup{State: "up", Address: address}
+	g.setup = Setup{State: "up", Address: scheme + "://" + firstNonEmpty(dnsName, name)}
 	g.mu.Unlock()
 	fmt.Fprintln(os.Stderr)
 	serve(plain, "http")
