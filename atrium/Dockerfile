@@ -15,8 +15,10 @@ ARG BUILD_ARCH
 LABEL io.hass.name="Atrium" io.hass.type="addon" io.hass.version="$BUILD_VERSION" io.hass.arch="$BUILD_ARCH" \
       org.opencontainers.image.source="https://github.com/cmmichael/atrium-addon" \
       org.opencontainers.image.description="Atrium for Home Assistant: your house in the Atrium app and on the web, over your tailnet"
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates python3
 COPY --from=build /atrium /usr/local/bin/atrium
-# The built web app (web/ in the repository, built by tools/build-web.sh into this folder).
+# The built web app and the atrium-mapping skill (web/ and skills/ in the repository; tools/build-web.sh copies
+# them into this folder). Python runs the skill's draft script for the MCP server's atrium_draft tool.
 COPY web/ /app/web/
+COPY skill/ /app/skill/
 CMD ["/usr/local/bin/atrium"]

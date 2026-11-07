@@ -510,3 +510,121 @@ func TestTheIngressWebSocketConnectsWithHomeAssistantsOrigin(t *testing.T) {
 		t.Fatalf("first message: %s", m)
 	}
 }
+
+// The add-on is an MCP server: a Claude on the tailnet (or an administrator through ingress) makes the layout
+// with its tools, no token anywhere.
+func TestTheMCPServerMakesTheLayout(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	g := gateway(ha, Identity{Login: "owner@example.com"})
+	g.MappingPath = filepath.Join(t.TempDir(), "atrium.yaml")
+	g.SkillDir = t.TempDir()
+	os.WriteFile(filepath.Join(g.SkillDir, "mapping.md"), []byte("# The contract\n"), 0o644)
+	os.WriteFile(filepath.Join(g.SkillDir, "SKILL.md"), []byte("# The skill\n"), 0o644)
+	rpc := func(g *Gateway, body string) (int, map[string]any) {
+		r := httptest.NewRequest("POST", "/mcp", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		g.ServeHTTP(w, r)
+		var m map[string]any
+		json.Unmarshal(w.Body.Bytes(), &m)
+		return w.Code, m
+	}
+	call := func(g *Gateway, tool string, args string) (string, bool) {
+		_, m := rpc(g, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"`+tool+`","arguments":`+args+`}}`)
+		res, _ := m["result"].(map[string]any)
+		if res == nil {
+			t.Fatalf("%s: %v", tool, m)
+		}
+		content := res["content"].([]any)[0].(map[string]any)
+		isErr, _ := res["isError"].(bool)
+		return content["text"].(string), isErr
+	}
+	if code, m := rpc(g, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`); code != 200 || m["result"].(map[string]any)["protocolVersion"] != mcpProtocol {
+		t.Fatalf("initialize: %d %v", code, m)
+	}
+	if code, _ := rpc(g, `{"jsonrpc":"2.0","method":"notifications/initialized"}`); code != 202 {
+		t.Errorf("a notification answered %d", code)
+	}
+	_, m := rpc(g, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	if tools := m["result"].(map[string]any)["tools"].([]any); len(tools) != len(mcpTools) {
+		t.Errorf("tools/list: %d tools", len(tools))
+	}
+	if text, _ := call(g, "atrium_contract", `{}`); text != "# The contract\n" {
+		t.Errorf("contract: %q", text)
+	}
+	if text, _ := call(g, "atrium_home", `{"domain":"light"}`); !strings.Contains(text, "light.den_lamp") || !strings.Contains(text, "Den") {
+		t.Errorf("home: %q", text)
+	}
+	if text, isErr := call(g, "atrium_mapping_get", `{}`); !isErr || !strings.Contains(text, "no layout") {
+		t.Errorf("get before any: %q %v", text, isErr)
+	}
+	if text, isErr := call(g, "atrium_mapping_put", `{"yaml":"rooms: [\n"}`); !isErr || !strings.HasPrefix(text, "Refused") {
+		t.Errorf("a broken layout: %q %v", text, isErr)
+	}
+	text, isErr := call(g, "atrium_mapping_put", `{"yaml":"rooms:\n  - id: den\n    entities: [light.den_lamp, light.ghost]\n"}`)
+	if isErr || !strings.Contains(text, `"rooms":1`) || !strings.Contains(text, "light.ghost") {
+		t.Errorf("put: %q %v", text, isErr)
+	}
+	if text, _ := call(g, "atrium_mapping_get", `{}`); !strings.Contains(text, "light.ghost") {
+		t.Errorf("get after put: %q", text)
+	}
+	if text, _ := call(g, "atrium_layout_status", `{}`); !strings.Contains(text, `"rooms": 1`) {
+		t.Errorf("status: %q", text)
+	}
+	guest := gateway(ha, Identity{Login: "guest@example.com"})
+	guest.MappingPath = g.MappingPath
+	if text, isErr := call(guest, "atrium_mapping_put", `{"yaml":"rooms: []\n"}`); !isErr || !strings.Contains(text, "Only the owner") {
+		t.Errorf("a guest changed the layout: %q", text)
+	}
+	if _, m := rpc(g, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"nope","arguments":{}}}`); m["error"] == nil {
+		t.Error("an unknown tool was not an error")
+	}
+}
+
+// An add-on the owner lists under writers (the Claude Code add-on) writes the layout from inside Home Assistant:
+// known by its address on the Supervisor's network, no token, no file access to anything.
+func TestAListedAddonWritesTheLayoutFromInsideHomeAssistant(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	g := gateway(ha, Identity{})
+	g.Opts.Writers = []string{"d7e97e69_claudecode"}
+	g.ResolveAddon = func(slug string) []string {
+		if slug == "d7e97e69_claudecode" {
+			return []string{"172.30.33.3"}
+		}
+		return nil
+	}
+	g.MappingPath = filepath.Join(t.TempDir(), "atrium.yaml")
+	in := Ingress{g}
+	from := func(peer, method, path, body string, header ...string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Host = "df84f1fd-atrium:8099"
+		r.RemoteAddr = peer + ":40000"
+		for i := 0; i+1 < len(header); i += 2 {
+			r.Header.Set(header[i], header[i+1])
+		}
+		w := httptest.NewRecorder()
+		in.ServeHTTP(w, r)
+		return w
+	}
+	if w := from("172.30.33.9", "PUT", "/atrium/mapping", "rooms: []\n"); w.Code != 403 {
+		t.Errorf("an unlisted container wrote the layout: %d", w.Code)
+	}
+	if w := from("172.30.33.3", "PUT", "/atrium/mapping", "rooms: []\n", "Origin", "http://evil.example"); w.Code != 403 {
+		t.Errorf("a web page from the listed container's address wrote the layout: %d", w.Code)
+	}
+	w := from("172.30.33.3", "PUT", "/atrium/mapping", "rooms:\n  - id: den\n    entities: [light.den_lamp]\n")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"rooms":1`) {
+		t.Errorf("the listed add-on could not write the layout: %d %s", w.Code, w.Body.String())
+	}
+	w = from("172.30.33.3", "POST", "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"atrium_layout_status","arguments":{}}}`, "Content-Type", "application/json")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `\"rooms\": 1`) {
+		t.Errorf("MCP from the listed add-on: %d %s", w.Code, w.Body.String())
+	}
+	var hello map[string]any
+	json.Unmarshal(from("172.30.33.3", "GET", "/atrium/hello", "").Body.Bytes(), &hello)
+	if hello["login"] != "d7e97e69_claudecode" || hello["configures"] != true {
+		t.Errorf("hello as the add-on: %v", hello)
+	}
+}

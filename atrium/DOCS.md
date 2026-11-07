@@ -33,13 +33,15 @@ The file is written for your house by the **atrium-mapping** skill, by a Claude:
 
 - **Recommended:** if you run the Claude Code app in Home Assistant, tell it to run the atrium-mapping skill from
   github.com/cmmichael/atrium-addon. It reads your areas and devices, decides the judgment calls (which thermostat
-  heats which room, which camera is the doorbell, which sensors are solar and grid) and gives you the file; press
-  **Upload** on Atrium's set-up page.
-- **Otherwise:** Claude Code on a computer on your tailnet runs the same skill and can deliver the file to Atrium
-  itself.
+  heats which room, which camera is the doorbell, which sensors are solar and grid) and writes the layout to Atrium
+  itself. It may, because it is listed under **Apps that may write the layout**; add other apps there.
+- **Otherwise:** point your Claude at Atrium. Atrium is an MCP server on your tailnet
+  (`https://atrium.<your-tailnet>.ts.net/mcp`): the contract, the skill, your house, a draft and saving are its
+  tools, and Tailscale is the sign-in. In Claude Code: `claude mcp add --transport http atrium <that address>`,
+  then ask it to make the layout.
 
-The set-up page shows the file's path and opens it in an editor (**Edit**), so you can change a line yourself; every
-way in is checked the same, and the page says what the file names that Home Assistant does not have. The skill is in the add-on repository under
+The set-up page shows the file's path and opens it in an editor, so you can change a line yourself; every way in
+is checked the same, and the page says what the file names that Home Assistant does not have. The skill is in the add-on repository under
 `skills/atrium-mapping`, with the file's full contract (`mapping.md`). You can also write the file by hand.
 
 Atrium re-reads the file whenever it changes and reports, in its log and on its set-up page, anything in it that

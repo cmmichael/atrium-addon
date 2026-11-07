@@ -1,5 +1,5 @@
 name: Atrium
-version: "0.5.4"
+version: "0.5.5"
 slug: atrium
 description: Your house in the Atrium app and on the web, from anywhere, over your tailnet
 url: https://github.com/cmmichael/atrium-addon
@@ -23,6 +23,8 @@ options:
   allow: []
   people: []
   admins: []
+  writers:
+    - d7e97e69_claudecode   # the Claude Code app, which writes the layout with the atrium-mapping skill
 schema:
   hostname: str
   auth_key: password?
@@ -32,4 +34,6 @@ schema:
     - login: str
       token: password?
   admins:
+    - str
+  writers:
     - str

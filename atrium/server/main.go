@@ -40,7 +40,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.5.4"
+const version = "0.5.5"
 
 // Person is a Tailscale login that may use the gateway, optionally as a Home Assistant user of its own.
 type Person struct {
@@ -54,7 +54,8 @@ type Options struct {
 	AuthKey  string   `json:"auth_key"`
 	Allow    []string `json:"allow"`
 	People   []Person `json:"people"`
-	Admins   []string `json:"admins"` // may change the layout for everyone, besides the login that signed the machine in
+	Admins   []string `json:"admins"`  // may change the layout for everyone, besides the login that signed the machine in
+	Writers  []string `json:"writers"` // add-on slugs that may write the layout from inside Home Assistant (the Claude Code add-on, by default)
 }
 
 // Identity is what Tailscale says about the other end of a connection.
@@ -67,6 +68,8 @@ type Identity struct {
 	// Through Home Assistant's ingress: a signed-in Home Assistant user rather than a Tailscale login.
 	HomeAssistant bool
 	UserID        string
+	// Another add-on on the Supervisor's network that the owner listed under writers: it may write the layout.
+	Addon bool
 }
 
 // Upstream is one way into Home Assistant.
@@ -88,8 +91,11 @@ type Gateway struct {
 	ConfigPath  string   // where the owner's preferences are kept ("" = not saved)
 	MappingPath string   // the declared layout, atrium.yaml in the add-on's own configuration folder
 	Slug        string   // this add-on's slug, for telling people where that folder is on the host
+	SkillDir    string   // the atrium-mapping skill, carried in the image ("" = none)
 	WebDir      string   // the built web app to serve ("" = none)
 	Supervisor  []string // the addresses the Supervisor's ingress proxy connects from: the only peers the ingress listener believes
+	// Resolves an add-on slug to its addresses on the Supervisor's network (nil: by DNS, slug with dashes).
+	ResolveAddon func(slug string) []string
 
 	mu         sync.Mutex
 	home       string
@@ -164,6 +170,9 @@ func (g *Gateway) allowed(id Identity) bool {
 	if id.Tagged || id.Login == "" {
 		return false
 	}
+	if id.Addon {
+		return true // listed by the owner
+	}
 	if id.HomeAssistant {
 		// Through ingress everyone gets the add-on's own (administrator) access, so only Home Assistant's
 		// administrators are allowed, whatever the panel's own setting says.
@@ -227,8 +236,18 @@ type Ingress struct{ *Gateway }
 func (in Ingress) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	peer, _, _ := net.SplitHostPort(r.RemoteAddr)
 	if !in.fromSupervisor(peer) {
-		log.Printf("ingress request from %s, which is not the Supervisor: refused", r.RemoteAddr)
-		http.Error(w, "only the Supervisor may use this port", http.StatusForbidden)
+		// Not the Supervisor: perhaps an add-on the owner lets write the layout (the Claude Code add-on, running
+		// the atrium-mapping skill). It is known by its container's address on the Supervisor's network.
+		if slug := in.writerAt(peer); slug != "" {
+			if r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") != "" {
+				http.Error(w, "web pages may not use Atrium this way", http.StatusForbidden)
+				return
+			}
+			in.serve(w, r, Identity{Login: slug, Name: "Add-on " + slug, Device: "add-on", Addon: true}, "")
+			return
+		}
+		log.Printf("ingress request from %s, which is not the Supervisor or a listed add-on: refused", r.RemoteAddr)
+		http.Error(w, "only the Supervisor and listed add-ons may use this port", http.StatusForbidden)
 		return
 	}
 	switch r.Header.Get("Sec-Fetch-Site") {
@@ -244,6 +263,29 @@ func (in Ingress) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	id := Identity{Login: strings.ToLower(user), Name: firstNonEmpty(r.Header.Get("X-Remote-User-Display-Name"), user), Device: "Home Assistant", HomeAssistant: true, UserID: r.Header.Get("X-Remote-User-Id")}
 	in.serve(w, r, id, strings.TrimSuffix(r.Header.Get("X-Ingress-Path"), "/"))
+}
+
+// writerAt says which listed add-on, if any, has this address on the Supervisor's network. Add-ons are reached
+// by their slug with dashes for underscores ("d7e97e69-claudecode"); the lookup is the Supervisor's DNS.
+func (g *Gateway) writerAt(ip string) string {
+	for _, slug := range g.Opts.Writers {
+		slug = strings.TrimSpace(slug)
+		if slug == "" {
+			continue
+		}
+		var addrs []string
+		if g.ResolveAddon != nil {
+			addrs = g.ResolveAddon(slug)
+		} else {
+			addrs, _ = net.LookupHost(strings.ReplaceAll(slug, "_", "-"))
+		}
+		for _, a := range addrs {
+			if a == ip {
+				return slug
+			}
+		}
+	}
+	return ""
 }
 
 func (g *Gateway) fromSupervisor(ip string) bool {
@@ -310,6 +352,16 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		g.serveConfig(w, r, id)
 	case r.URL.Path == "/atrium/mapping":
 		g.serveMapping(w, r, id)
+	case r.URL.Path == "/mcp":
+		g.serveMCP(w, r, id)
+	case strings.HasPrefix(r.URL.Path, "/atrium/skill/") && g.SkillDir != "":
+		name := path.Base(r.URL.Path) // SKILL.md, draft.py, mapping.md: so "point your Claude at this URL" works too
+		if f, err := os.Stat(filepath.Join(g.SkillDir, name)); err != nil || f.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		http.ServeFile(w, r, filepath.Join(g.SkillDir, name))
 	case r.URL.Path == "/api/websocket":
 		log.Printf("%s (%s) connected", id.Login, id.Device)
 		g.serveWebSocket(w, r, id, up)
@@ -612,6 +664,7 @@ func main() {
 			g.Names = append(g.Names, host)
 		}
 		g.WebDir = env("ATRIUM_WEB", "")
+		g.SkillDir = env("ATRIUM_SKILL", "")
 		g.MappingPath = env("ATRIUM_MAPPING", "")
 		g.readMapping()
 		go g.watchMapping()
@@ -639,6 +692,9 @@ func main() {
 	g.Core = mustURL(env("ATRIUM_CORE", "http://homeassistant:8123"))
 	if web := env("ATRIUM_WEB", "/app/web"); fileExists(filepath.Join(web, "index.html")) {
 		g.WebDir = web
+	}
+	if skill := env("ATRIUM_SKILL", "/app/skill"); fileExists(filepath.Join(skill, "SKILL.md")) {
+		g.SkillDir = skill
 	}
 	// The declared layout lives in the add-on's own configuration folder, mapped read-only at /config here and
 	// /addon_configs/<slug>/ on the host. Only that folder: Home Assistant's own configuration (secrets, auth

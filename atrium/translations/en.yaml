@@ -12,6 +12,9 @@ configuration:
   people:
     name: People with a Home Assistant user of their own
     description: A login and a long-lived access token from that person's Home Assistant profile, so what they do is done as them.
+  writers:
+    name: Apps that may write the layout
+    description: Home Assistant apps (by slug) allowed to write atrium.yaml from inside Home Assistant. The Claude Code app is listed so it can run the atrium-mapping skill; add others here.
   admins:
     name: Who may change the layout
     description: Logins that may edit the layout for everyone. Whoever signed Atrium in always may.
