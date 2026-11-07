@@ -29,4 +29,4 @@ Tailscale admin console (or the next install is named `atrium-1`), and delete th
 it fresh too. Then press the button above again.
 
 Published from the Atrium repository by `tools/publish-addon.sh`; the source of truth is there. Current version:
-**0.5.7** (atrium@3d4a1dc).
+**0.5.8** (atrium@bdc7431).

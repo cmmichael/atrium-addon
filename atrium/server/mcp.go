@@ -187,6 +187,9 @@ func (g *Gateway) putMapping(ctx context.Context, id Identity, data []byte) (str
 		os.Remove(tmp)
 		return "Could not save: " + err.Error(), true, nil
 	}
+	g.mu.Lock()
+	g.mappingAt = time.Time{} // re-read whatever the modification time says: two saves can share a second
+	g.mu.Unlock()
 	g.readMapping()
 	log.Printf("layout written by %s (%s)", id.Login, id.Device)
 	if _, err := g.houseJSON(ctx); err != nil {

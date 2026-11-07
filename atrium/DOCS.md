@@ -10,7 +10,8 @@ Tailscale say who is calling: no passwords, no tokens, no port forwarding, nothi
 3. The page shows a code and an address. Open the Atrium app on your iPhone or iPad, with Tailscale on, and scan
    the code (or enter the address). The same address opens Atrium in any browser on your tailnet.
 
-Turn on **Show in sidebar** to keep the set-up page in Home Assistant's sidebar.
+Turn on **Show in sidebar** to keep the set-up page in Home Assistant's sidebar. Its **Open the app here** button
+opens Atrium through Home Assistant itself, for a computer that cannot be on your tailnet (administrators).
 
 ## Who can use it
 

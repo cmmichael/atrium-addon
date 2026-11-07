@@ -40,7 +40,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.5.7"
+const version = "0.5.8"
 
 // Person is a Tailscale login that may use the gateway, optionally as a Home Assistant user of its own.
 type Person struct {
@@ -428,11 +428,21 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 	case strings.HasPrefix(r.URL.Path, "/local/"):
 		forward(w, r, g.Core, "")
 	case g.WebDir != "" && !strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/atrium/"):
-		page := "index.html"
-		if id.HomeAssistant && fileExists(filepath.Join(g.WebDir, "setup.html")) {
-			page = "setup.html" // in Home Assistant's sidebar: the set-up page, not the app (that lives on the tailnet)
+		page, webBase := "index.html", base
+		if id.HomeAssistant {
+			if r.URL.Path == "/app" || strings.HasPrefix(r.URL.Path, "/app/") {
+				// The app itself, through Home Assistant (for a computer that cannot be on the tailnet), under its
+				// own prefix so its links stay apart from the set-up page's. The API stays at the ingress root.
+				r.URL.Path = strings.TrimPrefix(r.URL.Path, "/app")
+				if r.URL.Path == "" {
+					r.URL.Path = "/"
+				}
+				webBase = base + "/app"
+			} else if fileExists(filepath.Join(g.WebDir, "setup.html")) {
+				page = "setup.html" // in Home Assistant's sidebar: the set-up page first
+			}
 		}
-		g.serveWeb(w, r, base, page)
+		g.serveWeb(w, r, webBase, page)
 	default:
 		http.NotFound(w, r)
 	}

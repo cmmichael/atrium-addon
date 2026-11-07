@@ -482,6 +482,28 @@ func TestTheWebAppIsServedWithItsBase(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `<base href="/api/hassio_ingress/tok/">`) || !strings.Contains(w.Body.String(), "set-up") {
 		t.Errorf("through ingress (should be the set-up page): %q", w.Body.String())
 	}
+	// …and the app itself under app/, for a computer that cannot be on the tailnet.
+	for _, p := range []string{"/app", "/app/", "/app/rooms"} {
+		r := httptest.NewRequest("GET", p, nil)
+		r.Host, r.RemoteAddr = "172.30.33.5:8099", "172.30.32.2:41000"
+		r.Header.Set("X-Remote-User-Name", "admin@example.com")
+		r.Header.Set("X-Remote-User-Id", "u2")
+		r.Header.Set("X-Ingress-Path", "/api/hassio_ingress/tok")
+		w := httptest.NewRecorder()
+		Ingress{g}.ServeHTTP(w, r)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `<base href="/api/hassio_ingress/tok/app/">`) || strings.Contains(w.Body.String(), "set-up") {
+			t.Errorf("the app through ingress at %s: %d %q", p, w.Code, w.Body.String())
+		}
+	}
+	r = httptest.NewRequest("GET", "/app/assets/app.js", nil)
+	r.Host, r.RemoteAddr = "172.30.33.5:8099", "172.30.32.2:41000"
+	r.Header.Set("X-Remote-User-Name", "admin@example.com")
+	r.Header.Set("X-Remote-User-Id", "u2")
+	w = httptest.NewRecorder()
+	Ingress{g}.ServeHTTP(w, r)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "console.log(1)") {
+		t.Errorf("the app's assets through ingress: %d", w.Code)
+	}
 	if code, _ := get(t, gateway(ha, Identity{Login: "stranger@example.com"}), "/"); code != 403 {
 		t.Errorf("a stranger got the web app: %d", code)
 	}
