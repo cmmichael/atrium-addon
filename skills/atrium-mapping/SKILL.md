@@ -72,6 +72,9 @@ page or the app for the picture) and add overrides only where they are wrong. Ch
   area) is worth a look: assign them an area in Home Assistant if they belong somewhere, or hide the room.
 - **Thermostats.** A thermostat sits where the installer put it, not where it heats: set `thermostat:` on the
   room it belongs with. A second `climate.*` in an area is usually a fridge, a wine cooler or a car: hide it.
+- **Readouts.** Each room's temperature is the area's own pick, else a temperature sensor there with a plausible
+  reading — which can be a pipe or an appliance. Where it is wrong, name the right sensor, or `temperature: none`
+  (likewise `humidity`, and `thermostat: none` for a room that should show no thermostat at all).
 - **Rank.** The rooms a person uses most go first: `rank: 1`, `rank: 2`… on a few rooms per floor, and on the
   floors. Leave the rest alone.
 - **Speakers.** Only real speakers belong in `music.speakers`: not TVs, receivers' zones that mirror a speaker,

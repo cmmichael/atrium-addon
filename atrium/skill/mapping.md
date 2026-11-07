@@ -41,9 +41,9 @@ rooms:                            # overrides by area id; a room not listed is s
     name: Kitchen                 # rename
     floor: ground                 # move to another floor
     icon: fork.knife              # an SF Symbol name (the web app maps the ones below); default: guessed from the name
-    thermostat: climate.hall      # the thermostat to show here, when the automatic pick is wrong or elsewhere
-    temperature: sensor.kitchen_temperature   # the room's readout; default: the area's own pick, else a room sensor there
-    humidity: sensor.kitchen_humidity
+    thermostat: climate.hall      # the thermostat to show here, when the automatic pick is wrong or elsewhere; none = no thermostat
+    temperature: sensor.kitchen_temperature   # the room's readout; default: the area's own pick, else a room sensor there; none = no readout
+    humidity: sensor.kitchen_humidity         # likewise
     entities: [light.hall_nightlight]         # shown here as well, wherever Home Assistant put them
     hide: [switch.kitchen_identify]           # entities to leave out of this room
   - id: garage
@@ -105,7 +105,8 @@ every `light`, `cover`, `fan` and `lock`; every `switch` except a kiosk's (brows
 spans room temperature (so a fridge is not a thermostat); a `media_player` that is a speaker (device class
 `speaker`, or listed under `music`). Locks, doors and covers from car integrations are left out. In that order,
 then by name. The room's temperature readout is the area's own temperature entity, else a temperature sensor there
-reading a plausible room temperature; humidity likewise.
+reading a plausible room temperature; humidity likewise. `none` turns a readout (or the thermostat) off when the
+automatic pick is wrong and there is nothing better: a water-pipe sensor in the garage, say.
 
 A version 1 file (rooms listed in full) still reads: its rooms become overrides that borrow what they list.
 

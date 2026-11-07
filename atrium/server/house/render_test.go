@@ -47,6 +47,7 @@ func smallHome() Dump {
 		reg("lock.car", "", "car", "tesla_fleet", false), reg("light.shed", "shed", "", "demo", false), reg("scene.movie", "", "", "demo", false),
 		reg("binary_sensor.smoke", "kitchen", "", "demo", false), reg("media_player.kitchen", "kitchen", "", "sonos", false),
 		reg("switch.kitchen_kettle", "kitchen", "", "demo", false), reg("climate.hall", "", "", "demo", false),
+		reg("sensor.shed_pipe_temperature", "shed", "", "demo", false),
 	}
 	st := func(id, state, attrs string) {
 		a, _ := j(attrs).(map[string]any)
@@ -65,6 +66,7 @@ func smallHome() Dump {
 	st("binary_sensor.smoke", "off", `{"friendly_name":"Kitchen smoke","device_class":"smoke"}`)
 	st("media_player.kitchen", "idle", `{"friendly_name":"Kitchen","device_class":"speaker"}`)
 	st("switch.kitchen_kettle", "off", `{"friendly_name":"Kitchen Kettle"}`)
+	st("sensor.shed_pipe_temperature", "18.5", `{"friendly_name":"Shed pipe","device_class":"temperature","unit_of_measurement":"°C"}`)
 	st("weather.forecast_home", "sunny", `{}`)
 	st("person.a", "home", `{}`)
 	st("alarm_control_panel.house", "disarmed", `{}`)
@@ -92,6 +94,9 @@ rooms:
   - id: garden
     floor: other
     entities: [light.shed, light.missing]
+  - id: shed
+    temperature: none
+    thermostat: none
 hide: ["light.*_group", "integration:tesla_fleet"]
 scenes:
   - { entity: scene.movie, name: "🎬 Film" }
@@ -149,9 +154,10 @@ func TestTheRoomsAreDrawnFromHomeAssistantWithNoMappingAtAll(t *testing.T) {
 	kitchen := h.Rooms[0]
 	// Lights (one through its device's area), the kettle, the thermostat but not the fridge, the speaker; not the hidden light.
 	eq(t, "kitchen", kitchen.Entities, []string{"light.kitchen_island", "light.kitchen_group", "switch.kitchen_kettle", "climate.downstairs", "media_player.kitchen"})
-	eq(t, "shed", h.Rooms[2].Entities, []string{"light.shed"})         // the car's lock is not a door
-	eq(t, "unassigned", h.Rooms[3].Entities, []string{"climate.hall"}) // in no area, but shown
-	eq(t, "island", h.Names["light.kitchen_island"], "Island lights")  // Home Assistant's name, shortened for the room
+	eq(t, "shed", h.Rooms[2].Entities, []string{"light.shed"})                    // the car's lock is not a door
+	eq(t, "shed readout", h.Rooms[2].Temperature, "sensor.shed_pipe_temperature") // a plausible room temperature there
+	eq(t, "unassigned", h.Rooms[3].Entities, []string{"climate.hall"})            // in no area, but shown
+	eq(t, "island", h.Names["light.kitchen_island"], "Island lights")             // Home Assistant's name, shortened for the room
 	eq(t, "scenes", h.Scenes, []SceneRef{{Entity: "scene.movie", Name: "Movie"}})
 	eq(t, "weather", h.Summary.Weather, "") // the custom screens wait for the file
 	eq(t, "hazards", h.Security.Hazards, []string{})
@@ -172,6 +178,7 @@ func TestTheMappingOverridesTheRoomsAndFillsTheScreens(t *testing.T) {
 	eq(t, "kitchen hidden", kitchen.Hidden, []string{"light.kitchen_group", "switch.kitchen_kettle"})
 	eq(t, "garden", h.Rooms[2].Entities, []string{"light.shed"}) // borrowed; the missing light dropped and reported
 	eq(t, "shed", h.Rooms[3].Entities, []string{"light.shed"})   // still in its own area too
+	eq(t, "shed readout", h.Rooms[3].Temperature, "")            // none: not even the automatic pick
 	eq(t, "island", h.Names["light.kitchen_island"], "Island")   // the mapping's name
 	eq(t, "problems", problems, []string{"room garden: Home Assistant has no light.missing", "home: Home Assistant has no person.gone"})
 	eq(t, "scenes", h.Scenes, []SceneRef{{Entity: "scene.movie", Name: "🎬 Film"}})
@@ -205,6 +212,7 @@ func TestTheMappingIsCheckedBeforeItIsUsed(t *testing.T) {
 		"rooms:\n  - id: a\n    hide: [notanentity]\n",
 		"rooms:\n  - id: a\n    hide: maybe\n",
 		"rooms:\n  - id: a\n    thermostat: sensor.x\n",
+		"rooms:\n  - id: a\n    entities: [none]\n",
 		"hide: [notanentity]\n",
 		"hide: [\"integration:\"]\n",
 		"version: 7\nrooms: []\n",

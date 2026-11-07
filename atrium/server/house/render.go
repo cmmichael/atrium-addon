@@ -268,6 +268,7 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 		}
 		for _, e := range ar.ents {
 			switch {
+			case e.domain == "climate" && rm.Thermostat == None:
 			case hidden(e.id) || contains(rm.Hide.Entities, e.id):
 				if shows(e) || c.Entities[e.id].Show {
 					hiddenHere = append(hiddenHere, e.id)
@@ -282,8 +283,10 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 				add(id)
 			}
 		}
-		if t := exists(where, firstOf(rc.Thermostat, rm.Thermostat)); t != "" && !hidden(t) {
-			add(t)
+		if t := firstOf(rc.Thermostat, rm.Thermostat); t != "" && t != None {
+			if t = exists(where, t); t != "" && !hidden(t) {
+				add(t)
+			}
 		}
 		for _, id := range moved[ar.id] {
 			if !hidden(id) {
@@ -302,27 +305,32 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 			exists(where, id)
 		}
 		name := firstOf(rc.Name, rm.Name, ar.name)
-		temp := exists(where, rm.Temperature)
-		if temp == "" {
-			temp = has(ar.temp) // the area's own pick, if Home Assistant has one
-		}
-		if temp == "" {
-			for _, e := range ar.ents {
-				if e.domain == "sensor" && e.class == "temperature" && isRoomTemperature(d.States[e.id]) {
-					temp = e.id
-					break
+		temp, hum := "", ""
+		if rm.Temperature != None {
+			temp = exists(where, rm.Temperature)
+			if temp == "" {
+				temp = has(ar.temp) // the area's own pick, if Home Assistant has one
+			}
+			if temp == "" {
+				for _, e := range ar.ents {
+					if e.domain == "sensor" && e.class == "temperature" && isRoomTemperature(d.States[e.id]) {
+						temp = e.id
+						break
+					}
 				}
 			}
 		}
-		hum := exists(where, rm.Humidity)
-		if hum == "" {
-			hum = has(ar.hum)
-		}
-		if hum == "" {
-			for _, e := range ar.ents {
-				if e.domain == "sensor" && e.class == "humidity" {
-					hum = e.id
-					break
+		if rm.Humidity != None {
+			hum = exists(where, rm.Humidity)
+			if hum == "" {
+				hum = has(ar.hum)
+			}
+			if hum == "" {
+				for _, e := range ar.ents {
+					if e.domain == "sensor" && e.class == "humidity" {
+						hum = e.id
+						break
+					}
 				}
 			}
 		}

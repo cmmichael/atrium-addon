@@ -36,15 +36,18 @@ type FloorMapping struct {
 	Rank *int   `yaml:"rank"` // lower first; unranked floors follow in Home Assistant's level order
 }
 
+// None, as a room's thermostat, temperature or humidity, means no readout: not even the automatic pick.
+const None = "none"
+
 type RoomMapping struct {
 	ID          string   `yaml:"id"`
 	Name        string   `yaml:"name"`
 	Floor       string   `yaml:"floor"`
 	Icon        string   `yaml:"icon"`
-	Rank        *int     `yaml:"rank"` // lower first; unranked rooms follow by name
-	Hide        Hide     `yaml:"hide"` // true: the whole room; a list: these entities in it
-	Thermostat  string   `yaml:"thermostat"`
-	Temperature string   `yaml:"temperature"`
+	Rank        *int     `yaml:"rank"`        // lower first; unranked rooms follow by name
+	Hide        Hide     `yaml:"hide"`        // true: the whole room; a list: these entities in it
+	Thermostat  string   `yaml:"thermostat"`  // a climate entity, or "none" for no thermostat here
+	Temperature string   `yaml:"temperature"` // a sensor, or "none" for no readout
 	Humidity    string   `yaml:"humidity"`
 	Entities    []string `yaml:"entities"` // shown here as well, wherever Home Assistant put them
 }
@@ -166,11 +169,16 @@ func ParseMapping(data []byte) (Mapping, error) {
 		}
 		seen[r.ID] = true
 		for _, id := range concat([]string{r.Thermostat, r.Temperature, r.Humidity}, r.Entities, r.Hide.Entities) {
-			if id != "" && domain(id) == "" {
+			if id != "" && id != None && domain(id) == "" {
 				return m, fmt.Errorf("room %q: %q is not an entity id", r.ID, id)
 			}
 		}
-		if r.Thermostat != "" && domain(r.Thermostat) != "climate" {
+		for _, id := range concat(r.Entities, r.Hide.Entities) {
+			if id == None {
+				return m, fmt.Errorf("room %q: %q is only for thermostat, temperature and humidity", r.ID, id)
+			}
+		}
+		if r.Thermostat != "" && r.Thermostat != None && domain(r.Thermostat) != "climate" {
 			return m, fmt.Errorf("room %q: thermostat %q is not a climate entity", r.ID, r.Thermostat)
 		}
 	}
