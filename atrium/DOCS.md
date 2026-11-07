@@ -22,6 +22,17 @@ away, remove their login here or their device from your tailnet.
 Everyone acts with Atrium's own access to Home Assistant, which is an administrator's. To make someone's actions
 their own, add them under **People** with a long-lived access token from their Home Assistant profile.
 
+### Without Tailscale
+
+The app can also sign in to Home Assistant directly, with a Home Assistant account: at home, over a VPN such as
+WireGuard, or through any address your Home Assistant has. Then everything it does is that person's own, and it
+fetches only the layout and camera clips from Atrium, one of two ways:
+
+- **Administrators**: through Home Assistant itself (the same way the sidebar panel works), from any address.
+- **Everyone else**: on Atrium's port **8126** on the Home Assistant machine, which answers only someone showing a
+  Home Assistant sign-in, and only with the layout and clips. That works at home and over a VPN into your home
+  network, not from outside. To turn it off, clear the port under **Network** in the Configuration tab.
+
 ## The layout
 
 Atrium draws the rooms itself from Home Assistant: one room per area, on its floor, with the lights, switches,

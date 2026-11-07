@@ -1,5 +1,5 @@
 name: Atrium
-version: "0.8.1"
+version: "0.8.2"
 slug: atrium
 description: Your house in the Atrium app and on the web, from anywhere, over your tailnet
 url: https://github.com/cmmichael/atrium-addon
@@ -15,6 +15,10 @@ map:
   - type: addon_config   # the add-on's own folder (/addon_configs/<slug> on the host, /config here): atrium.yaml, the declared layout
     read_only: false     # PUT /atrium/mapping writes it
 ingress: true
+ports:
+  8126/tcp: 8126
+ports_description:
+  8126/tcp: For the app at home or over a VPN without Tailscale (asks for a Home Assistant sign-in). Clear it to turn this off.
 ingress_port: 8099
 panel_icon: mdi:home-heart
 panel_title: Atrium

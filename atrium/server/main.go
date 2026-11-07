@@ -42,7 +42,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.8.1"
+const version = "0.8.2"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -80,6 +80,9 @@ type Identity struct {
 	UserID        string
 	// Another add-on on the Supervisor's network that the owner listed under writers: it may write the layout.
 	Addon bool
+	// On the add-on's port (home network, VPN), with a Home Assistant token Home Assistant accepted: the layout
+	// and clips only (Local refuses every other path).
+	Local bool
 }
 
 // Upstream is one way into Home Assistant.
@@ -194,6 +197,9 @@ func (g *Gateway) allowed(id Identity) bool {
 	}
 	if id.Addon {
 		return false // a writer gets the layout routes only (see serve), never the API proxy
+	}
+	if id.Local {
+		return true
 	}
 	if id.HomeAssistant {
 		// Through ingress everyone gets the add-on's own (administrator) access, so only Home Assistant's
@@ -763,6 +769,9 @@ func main() {
 		default:
 			g.setup = Setup{State: "up", Address: "http://" + listen}
 		}
+		if local := os.Getenv("ATRIUM_LOCAL"); local != "" { // e.g. 127.0.0.1:8126: the add-on's port, with Home Assistant tokens
+			go func() { log.Fatal(http.ListenAndServe(local, NewLocal(g))) }()
+		}
 		if ingress := os.Getenv("ATRIUM_INGRESS"); ingress != "" { // e.g. 127.0.0.1:8099: pretends to be the Supervisor's ingress
 			g.Supervisor = []string{"127.0.0.1", "::1"}
 			go func() { log.Fatal(http.ListenAndServe(ingress, Ingress{g})) }()
@@ -805,6 +814,15 @@ func main() {
 	go func() {
 		log.Printf("Panel listening for ingress on :%s, from the Supervisor at %v only", env("ATRIUM_INGRESS_PORT", "8099"), g.Supervisor)
 		log.Fatal(http.ListenAndServe(":"+env("ATRIUM_INGRESS_PORT", "8099"), Ingress{g}))
+	}()
+
+	// The home network's side: the app at home or over a VPN, without Tailscale, with its Home Assistant token.
+	go func() {
+		port := env("ATRIUM_LOCAL_PORT", "8126")
+		log.Printf("Layout for the app on the home network on :%s (a Home Assistant sign-in is asked for)", port)
+		if err := http.ListenAndServe(":"+port, NewLocal(g)); err != nil {
+			log.Printf("home network port: %v (the app reaches Atrium over Tailscale or through Home Assistant only)", err)
+		}
 	}()
 
 	srv := &tsnet.Server{Hostname: opts.Hostname, Dir: env("ATRIUM_STATE", "/data/tsnet"), AuthKey: opts.AuthKey, UserLogf: log.Printf, Logf: func(string, ...any) {}}

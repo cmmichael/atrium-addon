@@ -22,6 +22,9 @@ func (g *Gateway) mayConfigure(id Identity) bool {
 	if id.Login == "" || id.Tagged {
 		return false
 	}
+	if id.Local {
+		return false // the add-on's port serves the layout, never changes to it
+	}
 	if id.Addon {
 		return true // listed by the owner for exactly this
 	}
