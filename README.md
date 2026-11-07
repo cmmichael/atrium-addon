@@ -11,8 +11,11 @@ port forwarding; nothing to type.
    on the tailnet.
 3. On your iPhone or iPad, turn Tailscale on and open Atrium. It finds the house by itself.
 
-Turn on **Show in sidebar** to keep the web version in Home Assistant's sidebar. Everything else, including who may
+Turn on **Show in sidebar** to keep the set-up page in Home Assistant's sidebar. Everything else, including who may
 use it, is in [atrium/DOCS.md](atrium/DOCS.md).
 
+Starting over? In Home Assistant's Terminal, `curl -fsSL https://raw.githubusercontent.com/cmmichael/atrium-addon/main/reset.sh | sh`
+removes Atrium completely (settings and Tailscale sign-in included); then press the button again.
+
 Published from the Atrium repository by `tools/publish-addon.sh`; the source of truth is there. Current version:
-**0.4.4** (atrium@08ce759).
+**0.4.4** (atrium@88c9836).
