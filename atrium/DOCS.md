@@ -29,11 +29,17 @@ rooms, on which floors, with which lights, shades, thermostat and speakers; the 
 Security, Energy and Music screens show. Nothing is guessed, so nothing wrong ever appears; a screen is empty until
 the file fills it.
 
-The file is written for your house by the **atrium-mapping** skill: give it to a Claude that can reach your Home
-Assistant (Claude Code on the machine, or with a long-lived access token). It drafts the layout from your areas and
-devices, reviews the judgment calls (which thermostat heats which room, which camera is the doorbell, which sensors
-are solar and grid), and gives you the file; you hand it in with **Upload atrium.yaml** on Atrium's set-up page,
-which checks it and says what it could not use. The skill is in the add-on repository under
+The file is written for your house by the **atrium-mapping** skill, by a Claude:
+
+- **Recommended:** if you run the Claude Code app in Home Assistant, tell it to run the atrium-mapping skill from
+  github.com/cmmichael/atrium-addon. It reads your areas and devices, decides the judgment calls (which thermostat
+  heats which room, which camera is the doorbell, which sensors are solar and grid) and gives you the file; press
+  **Upload** on Atrium's set-up page.
+- **Otherwise:** Claude Code on a computer on your tailnet runs the same skill and can deliver the file to Atrium
+  itself.
+
+The set-up page shows the file's path and opens it in an editor (**Edit**), so you can change a line yourself; every
+way in is checked the same, and the page says what the file names that Home Assistant does not have. The skill is in the add-on repository under
 `skills/atrium-mapping`, with the file's full contract (`mapping.md`). You can also write the file by hand.
 
 Atrium re-reads the file whenever it changes and reports, in its log and on its set-up page, anything in it that

@@ -236,9 +236,14 @@ func (g *Gateway) serveMapping(w http.ResponseWriter, r *http.Request, id Identi
 			http.Error(w, "only the owner and administrators may change the layout", http.StatusForbidden)
 			return
 		}
-		data, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		const limit = 1 << 20
+		data, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if len(data) > limit {
+			http.Error(w, "a layout is at most 1 MiB", http.StatusRequestEntityTooLarge)
 			return
 		}
 		if _, err := house.ParseMapping(data); err != nil {
@@ -250,10 +255,12 @@ func (g *Gateway) serveMapping(w http.ResponseWriter, r *http.Request, id Identi
 			return
 		}
 		tmp := g.MappingPath + ".tmp"
-		if err := os.WriteFile(tmp, data, 0o644); err == nil {
+		err = os.WriteFile(tmp, data, 0o644)
+		if err == nil {
 			err = os.Rename(tmp, g.MappingPath)
 		}
 		if err != nil {
+			os.Remove(tmp)
 			http.Error(w, "could not save: "+err.Error(), http.StatusInternalServerError)
 			return
 		}

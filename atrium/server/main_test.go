@@ -322,6 +322,15 @@ func TestTheHouseIsBuiltHereAndTheConfigurationApplies(t *testing.T) {
 	if w := put("rooms: []\n", "Origin", "https://evil.example"); w.Code != 403 {
 		t.Errorf("another site's page wrote the layout: %d", w.Code)
 	}
+	// A save that fails must say so, not report the old layout as saved.
+	g.MappingPath = filepath.Join(t.TempDir(), "no-such-folder", "atrium.yaml")
+	if w := put("rooms: []\n"); w.Code != 500 || !strings.Contains(w.Body.String(), "could not save") {
+		t.Errorf("a failed save answered %d %s", w.Code, w.Body.String())
+	}
+	g.MappingPath = filepath.Join(t.TempDir(), "atrium.yaml")
+	if w := put(strings.Repeat("# padding\n", 1<<17) + "rooms: []\n"); w.Code != 413 {
+		t.Errorf("an oversized layout answered %d", w.Code)
+	}
 	stranger := gateway(ha, Identity{Login: "guest@example.com"})
 	stranger.MappingPath = g.MappingPath
 	r = httptest.NewRequest("PUT", "/atrium/mapping", strings.NewReader("rooms: []\n"))
