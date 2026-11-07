@@ -1,5 +1,5 @@
 name: Atrium
-version: "0.4.2"
+version: "0.4.3"
 slug: atrium
 description: Reach Home Assistant from the Atrium app over your tailnet, signed in by your Tailscale identity
 url: https://github.com/cmmichael/atrium-addon
