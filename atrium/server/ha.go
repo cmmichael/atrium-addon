@@ -1,0 +1,373 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/cmmichael/atrium/addon/atrium/server/house"
+	"github.com/coder/websocket"
+)
+
+// mayConfigure says who may change the layout for everyone: the login that signed the machine in, and the
+// logins listed under admins (the only way when the machine is tagged and has no owner).
+func (g *Gateway) mayConfigure(id Identity) bool {
+	if id.Login == "" || id.Tagged {
+		return false
+	}
+	if id.HomeAssistant {
+		return g.isHAAdmin(id.UserID)
+	}
+	if id.Owner {
+		return true
+	}
+	if g.Owner != "" && strings.EqualFold(id.Login, g.Owner) {
+		return true
+	}
+	for _, a := range g.Opts.Admins {
+		if strings.EqualFold(strings.TrimSpace(a), id.Login) {
+			return true
+		}
+	}
+	return false
+}
+
+// dump asks Home Assistant for everything the builder needs: the four registries and every state, over one
+// WebSocket session, plus the house's optional overlay and its name.
+func (g *Gateway) dump(ctx context.Context) (house.Dump, error) {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	up := g.Addon
+	c, _, err := websocket.Dial(ctx, up.WS, nil)
+	if err != nil {
+		return house.Dump{}, fmt.Errorf("Home Assistant's WebSocket: %w", err)
+	}
+	defer c.CloseNow()
+	c.SetReadLimit(-1)
+	read := func() (map[string]any, error) {
+		_, data, err := c.Read(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var m map[string]any
+		return m, json.Unmarshal(data, &m)
+	}
+	write := func(m map[string]any) error {
+		data, _ := json.Marshal(m)
+		return c.Write(ctx, websocket.MessageText, data)
+	}
+	if first, err := read(); err != nil || first["type"] != "auth_required" {
+		return house.Dump{}, fmt.Errorf("Home Assistant did not ask for a token: %v", err)
+	}
+	if err := write(map[string]any{"type": "auth", "access_token": up.Token}); err != nil {
+		return house.Dump{}, err
+	}
+	if ok, err := read(); err != nil || ok["type"] != "auth_ok" {
+		return house.Dump{}, fmt.Errorf("Home Assistant refused the add-on's token: %v %v", ok["message"], err)
+	}
+	kinds := []string{"config/area_registry/list", "config/floor_registry/list", "config/entity_registry/list", "config/device_registry/list", "get_states", "get_config"}
+	for i, kind := range kinds {
+		if err := write(map[string]any{"id": i + 1, "type": kind}); err != nil {
+			return house.Dump{}, err
+		}
+	}
+	results := map[int]any{}
+	for len(results) < len(kinds) {
+		m, err := read()
+		if err != nil {
+			return house.Dump{}, err
+		}
+		id, _ := m["id"].(float64)
+		if m["type"] != "result" || id == 0 {
+			continue
+		}
+		if ok, _ := m["success"].(bool); !ok {
+			return house.Dump{}, fmt.Errorf("%s: %v", kinds[int(id)-1], m["error"])
+		}
+		results[int(id)] = m["result"]
+	}
+	d := house.Dump{States: map[string]*house.State{}}
+	d.Areas, d.Floors, d.Entities, d.Devices = objects(results[1]), objects(results[2]), objects(results[3]), objects(results[4])
+	for _, s := range objects(results[5]) {
+		id, _ := s["entity_id"].(string)
+		state, _ := s["state"].(string)
+		attrs, _ := s["attributes"].(map[string]any)
+		if id != "" {
+			d.States[id] = &house.State{State: state, Attributes: attrs}
+		}
+	}
+	if cfg, _ := results[6].(map[string]any); cfg != nil {
+		d.Name, _ = cfg["location_name"].(string)
+	}
+	d.Overlay = g.overlay(ctx)
+	return d, nil
+}
+
+func objects(v any) []map[string]any {
+	list, _ := v.([]any)
+	out := make([]map[string]any, 0, len(list))
+	for _, x := range list {
+		if m, ok := x.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// overlay is the house twin's entities.json, when the house publishes one; nil otherwise.
+func (g *Gateway) overlay(ctx context.Context) map[string]any {
+	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimSuffix(g.Core.String(), "/")+"/local/house-twin/entities.json", nil)
+	if err != nil {
+		return nil
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		return nil
+	}
+	data, err := io.ReadAll(io.LimitReader(res.Body, 8<<20))
+	if err != nil {
+		return nil
+	}
+	var m map[string]any
+	if json.Unmarshal(data, &m) != nil {
+		return nil
+	}
+	return m
+}
+
+// built is one house.json with when it was built.
+type built struct {
+	data  []byte
+	etag  string
+	at    time.Time
+	stale bool // Home Assistant did not answer the last time; this is the previous layout
+}
+
+const houseTTL = 30 * time.Second
+
+// houseJSON is the current layout: rebuilt from Home Assistant when older than houseTTL or when the
+// configuration changed, otherwise served from memory. Concurrent callers share one rebuild, and a rebuild
+// that started before the configuration changed is not kept.
+func (g *Gateway) houseJSON(ctx context.Context) (built, error) {
+	g.mu.Lock()
+	cached, fresh := g.house, time.Since(g.house.at) < houseTTL
+	g.mu.Unlock()
+	if fresh && cached.data != nil {
+		return cached, nil
+	}
+	g.mu.Lock()
+	key := fmt.Sprint(g.generation) // a build for an older configuration is never joined
+	g.mu.Unlock()
+	v, err, _ := g.building.Do(key, func() (any, error) {
+		g.mu.Lock()
+		cfg, gen, before := g.config, g.generation, g.house
+		g.mu.Unlock()
+		d, err := g.dump(context.WithoutCancel(ctx))
+		if err != nil {
+			if before.data != nil {
+				log.Printf("Home Assistant did not answer; serving the layout built at %s: %v", before.at.Format(time.RFC3339), err)
+				before.stale = true
+				return before, nil // better the last layout than none
+			}
+			return built{}, err
+		}
+		h := house.Build(d, cfg)
+		h.BuiltAt = time.Now().UTC().Format(time.RFC3339)
+		data, err := json.Marshal(h)
+		if err != nil {
+			return built{}, err
+		}
+		b := built{data: data, etag: fmt.Sprintf(`"%x"`, fnv(data)), at: time.Now()}
+		g.mu.Lock()
+		if g.generation == gen { // the configuration did not change meanwhile
+			g.house = b
+		}
+		g.mu.Unlock()
+		return b, nil
+	})
+	if err != nil {
+		return built{}, err
+	}
+	return v.(built), nil
+}
+
+func fnv(data []byte) uint64 {
+	h := uint64(14695981039346656037)
+	for _, b := range data {
+		h ^= uint64(b)
+		h *= 1099511628211
+	}
+	return h
+}
+
+// serveHouse answers GET /atrium/house.
+func (g *Gateway) serveHouse(w http.ResponseWriter, r *http.Request) {
+	b, err := g.houseJSON(r.Context())
+	if err != nil {
+		http.Error(w, "Home Assistant did not answer: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("ETag", b.etag)
+	if b.stale {
+		w.Header().Set("X-Atrium-Stale", "1")
+	}
+	if r.Header.Get("If-None-Match") == b.etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	w.Write(b.data)
+}
+
+// serveConfig answers GET and PUT /atrium/config: the owner's overrides.
+func (g *Gateway) serveConfig(w http.ResponseWriter, r *http.Request, id Identity) {
+	switch r.Method {
+	case "GET":
+		g.mu.Lock()
+		cfg := g.config
+		g.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(cfg)
+	case "PUT":
+		if !g.mayConfigure(id) {
+			http.Error(w, "only the owner may change the configuration", http.StatusForbidden)
+			return
+		}
+		data, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		var cfg house.Config
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			http.Error(w, "not a configuration: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := cfg.Validate(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if g.ConfigPath != "" {
+			if err := house.Save(g.ConfigPath, cfg); err != nil {
+				http.Error(w, "could not save: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		g.mu.Lock()
+		g.config = cfg
+		g.generation++
+		g.house = built{} // rebuild on the next request
+		g.mu.Unlock()
+		log.Printf("configuration changed by %s", id.Login)
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "GET or PUT", http.StatusMethodNotAllowed)
+	}
+}
+
+// isHAAdmin asks Home Assistant whether a user is an administrator (config/auth/list), remembered for a while.
+func (g *Gateway) isHAAdmin(userID string) bool {
+	if userID == "" {
+		log.Printf("ingress request without X-Remote-User-Id: cannot tell whether the user is an administrator")
+		return false
+	}
+	g.mu.Lock()
+	admins, at := g.admins, g.adminsAt
+	g.mu.Unlock()
+	if admins == nil || time.Since(at) > 5*time.Minute {
+		admins = map[string]bool{}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if users, err := g.wsRequest(ctx, "config/auth/list"); err == nil {
+			for _, u := range objects(users) {
+				if id, _ := u["id"].(string); id != "" {
+					admins[id] = isAdminUser(u)
+				}
+			}
+			g.mu.Lock()
+			g.admins, g.adminsAt = admins, time.Now()
+			g.mu.Unlock()
+		} else {
+			log.Printf("could not list Home Assistant's users (so nobody is an administrator): %v", err)
+		}
+	}
+	if !admins[userID] {
+		log.Printf("Home Assistant user %s is not an administrator, by its own list of %d users", userID, len(admins))
+	}
+	return admins[userID]
+}
+
+// isAdminUser reads Home Assistant's own description of a user: an owner, or a member of the system-admin
+// group (config/auth/list has no is_admin field; it is kept as a fallback should one appear).
+func isAdminUser(u map[string]any) bool {
+	if active, ok := u["is_active"].(bool); ok && !active {
+		return false
+	}
+	if owner, _ := u["is_owner"].(bool); owner {
+		return true
+	}
+	if admin, _ := u["is_admin"].(bool); admin {
+		return true
+	}
+	groups, _ := u["group_ids"].([]any)
+	for _, g := range groups {
+		if g == "system-admin" {
+			return true
+		}
+	}
+	return false
+}
+
+// wsRequest makes one request on a fresh signed-in WebSocket session.
+func (g *Gateway) wsRequest(ctx context.Context, kind string) (any, error) {
+	c, _, err := websocket.Dial(ctx, g.Addon.WS, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer c.CloseNow()
+	c.SetReadLimit(-1)
+	read := func() (map[string]any, error) {
+		_, data, err := c.Read(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var m map[string]any
+		return m, json.Unmarshal(data, &m)
+	}
+	if _, err := read(); err != nil {
+		return nil, err
+	}
+	auth, _ := json.Marshal(map[string]any{"type": "auth", "access_token": g.Addon.Token})
+	if err := c.Write(ctx, websocket.MessageText, auth); err != nil {
+		return nil, err
+	}
+	if ok, err := read(); err != nil || ok["type"] != "auth_ok" {
+		return nil, fmt.Errorf("refused: %v", err)
+	}
+	req, _ := json.Marshal(map[string]any{"id": 1, "type": kind})
+	if err := c.Write(ctx, websocket.MessageText, req); err != nil {
+		return nil, err
+	}
+	for {
+		m, err := read()
+		if err != nil {
+			return nil, err
+		}
+		if m["type"] == "result" {
+			if ok, _ := m["success"].(bool); !ok {
+				return nil, fmt.Errorf("%s: %v", kind, m["error"])
+			}
+			return m["result"], nil
+		}
+	}
+}

@@ -1,0 +1,394 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/coder/websocket"
+)
+
+// A stand-in Home Assistant: says which token each request carried.
+func fakeHA(t *testing.T) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/websocket" {
+			c, err := websocket.Accept(w, r, nil)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			defer c.CloseNow()
+			ctx := r.Context()
+			c.Write(ctx, websocket.MessageText, []byte(`{"type":"auth_required"}`))
+			_, first, _ := c.Read(ctx)
+			c.Write(ctx, websocket.MessageText, append([]byte(`{"type":"auth_ok","saw":`), append(first, '}')...))
+			for { // registry requests get a tiny house; anything else is echoed untouched
+				_, msg, err := c.Read(ctx)
+				if err != nil {
+					return
+				}
+				var m map[string]any
+				json.Unmarshal(msg, &m)
+				if result, ok := tinyHouse[m["type"].(string)]; ok {
+					out, _ := json.Marshal(map[string]any{"id": m["id"], "type": "result", "success": true, "result": json.RawMessage(result)})
+					c.Write(ctx, websocket.MessageText, out)
+				} else {
+					c.Write(ctx, websocket.MessageText, msg)
+				}
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]string{"path": r.URL.Path, "auth": r.Header.Get("Authorization"), "cookie": r.Header.Get("Cookie"), "location_name": "Test Home"})
+	}))
+}
+
+var tinyHouse = map[string]string{
+	"config/area_registry/list":   `[{"area_id":"den","name":"Den","floor_id":"g"}]`,
+	"config/floor_registry/list":  `[{"floor_id":"g","name":"Ground","level":0}]`,
+	"config/entity_registry/list": `[{"entity_id":"light.den_lamp","area_id":"den","platform":"demo"},{"entity_id":"light.den_settings","area_id":"den","platform":"demo","entity_category":"config"}]`,
+	"config/device_registry/list": `[]`,
+	"get_states":                  `[{"entity_id":"light.den_lamp","state":"on","attributes":{"friendly_name":"Den Lamp"}},{"entity_id":"light.den_settings","state":"off","attributes":{}}]`,
+	"get_config":                  `{"location_name":"Test Home"}`,
+	"config/auth/list":            `[{"id":"u1","name":"Someone","is_owner":false,"group_ids":["system-users"]},{"id":"u2","name":"The admin","is_owner":false,"group_ids":["system-admin"]},{"id":"u3","name":"The owner","is_owner":true,"group_ids":["system-admin"]}]`,
+}
+
+func gateway(ha *httptest.Server, caller Identity) *Gateway {
+	base, _ := url.Parse(ha.URL)
+	return &Gateway{
+		Who:        func(context.Context, string) (Identity, error) { return caller, nil },
+		Owner:      "owner@example.com",
+		Opts:       Options{Allow: []string{"Guest@Example.com"}, People: []Person{{Login: "kid@example.com", Token: "kid-token"}}},
+		Addon:      Upstream{Base: base, WS: "ws" + strings.TrimPrefix(ha.URL, "http") + "/api/websocket", Token: "addon-token", As: "home-assistant"},
+		Core:       base,
+		Names:      []string{"atrium", "atrium.tail1234.ts.net", "100.64.0.9", "127.0.0.1", "example.com"}, // httptest requests say example.com; real servers 127.0.0.1
+		Supervisor: []string{"172.30.32.2"},
+	}
+}
+
+func get(t *testing.T, g *Gateway, path string, header ...string) (int, map[string]any) {
+	r := httptest.NewRequest("GET", path, nil)
+	for i := 0; i+1 < len(header); i += 2 {
+		r.Header.Set(header[i], header[i+1])
+	}
+	w := httptest.NewRecorder()
+	g.ServeHTTP(w, r)
+	var body map[string]any
+	data, _ := io.ReadAll(w.Body)
+	json.Unmarshal(data, &body)
+	return w.Code, body
+}
+
+func TestWhoIsAllowed(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	for _, c := range []struct {
+		id   Identity
+		want bool
+	}{
+		{Identity{Login: "owner@example.com"}, true},
+		{Identity{Login: "OWNER@example.com"}, true},
+		{Identity{Login: "renamed@example.com", Owner: true}, true}, // the owner by Tailscale user id, whatever the login reads
+		{Identity{Login: "guest@example.com"}, true},
+		{Identity{Login: "kid@example.com"}, true},
+		{Identity{Login: "stranger@example.com"}, false},
+		{Identity{Login: "owner@example.com", Tagged: true}, false},
+		{Identity{}, false},
+	} {
+		code, hello := get(t, gateway(ha, c.id), "/atrium/hello")
+		if code != 200 || hello["allowed"] != c.want || hello["home"] != "Test Home" {
+			t.Errorf("%+v: hello %d %v", c.id, code, hello)
+		}
+		code, _ = get(t, gateway(ha, c.id), "/api/states")
+		if (code == 200) != c.want {
+			t.Errorf("%+v: /api/states answered %d", c.id, code)
+		}
+	}
+}
+
+func TestTheCredentialIsSetHereAndNothingOfTheCallersIsForwarded(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	_, body := get(t, gateway(ha, Identity{Login: "owner@example.com"}), "/api/states", "Authorization", "Bearer from-the-app", "Cookie", "x=1")
+	if body["auth"] != "Bearer addon-token" || body["cookie"] != "" || body["path"] != "/api/states" {
+		t.Errorf("as the add-on: %v", body)
+	}
+	_, body = get(t, gateway(ha, Identity{Login: "kid@example.com"}), "/api/states")
+	if body["auth"] != "Bearer kid-token" {
+		t.Errorf("as a person with a token: %v", body)
+	}
+	_, body = get(t, gateway(ha, Identity{Login: "owner@example.com"}), "/local/x.json", "Authorization", "Bearer from-the-app")
+	if body["auth"] != "" || body["path"] != "/local/x.json" {
+		t.Errorf("/local: %v", body)
+	}
+}
+
+func TestOnlyTheAPIAndLocalFilesAreReachable(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	g := gateway(ha, Identity{Login: "owner@example.com"})
+	for path, want := range map[string]int{"/auth/token": 404, "/": 404, "/lovelace": 404, "/api/../auth/token": 400, "/api/states": 200} {
+		if code, _ := get(t, g, path); code != want {
+			t.Errorf("%s answered %d, want %d", path, code, want)
+		}
+	}
+}
+
+func TestTheWebSocketSignsInWithTheRealToken(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	front := httptest.NewServer(gateway(ha, Identity{Login: "kid@example.com"}))
+	defer front.Close()
+	ctx := context.Background()
+	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(front.URL, "http")+"/api/websocket", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+	if _, m, _ := c.Read(ctx); !strings.Contains(string(m), "auth_required") {
+		t.Fatalf("first message: %s", m)
+	}
+	c.Write(ctx, websocket.MessageText, []byte(`{"type":"auth","access_token":"placeholder"}`))
+	_, ok, _ := c.Read(ctx)
+	if !strings.Contains(string(ok), `"access_token":"kid-token"`) || strings.Contains(string(ok), "placeholder") {
+		t.Errorf("Home Assistant saw: %s", ok)
+	}
+	later := `{"id":1,"type":"auth","access_token":"placeholder"}`
+	c.Write(ctx, websocket.MessageText, []byte(later))
+	if _, echo, _ := c.Read(ctx); string(echo) != later {
+		t.Errorf("a later message was changed: %s", echo)
+	}
+
+	refused := httptest.NewServer(gateway(ha, Identity{Login: "stranger@example.com"}))
+	defer refused.Close()
+	if _, res, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(refused.URL, "http")+"/api/websocket", nil); err == nil || res == nil || res.StatusCode != 403 {
+		t.Errorf("a stranger's WebSocket was not refused: %v", err)
+	}
+}
+
+// A web page in a browser on an allowed person's device must get nothing: the browser marks its requests.
+func TestWebPagesAreRefused(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	g := gateway(ha, Identity{Login: "owner@example.com"})
+	for _, c := range []struct {
+		name   string
+		header []string
+		want   int
+	}{
+		{"a native app", nil, 200},
+		{"an Origin", []string{"Origin", "https://evil.example"}, 403},
+		{"a null Origin", []string{"Origin", "null"}, 403},
+		{"the add-on's own page", []string{"Origin", "https://atrium.tail1234.ts.net", "Sec-Fetch-Site", "same-origin"}, 200},
+		{"a page on another machine of the tailnet", []string{"Origin", "https://other.tail1234.ts.net", "Sec-Fetch-Site", "same-site"}, 403},
+		{"Sec-Fetch-Site cross-site", []string{"Sec-Fetch-Site", "cross-site"}, 403},
+		{"Sec-Fetch-Site same-site without Origin", []string{"Sec-Fetch-Site", "same-site"}, 403},
+		{"Sec-Fetch-Site same-origin", []string{"Sec-Fetch-Site", "same-origin"}, 200},
+		{"Sec-Fetch-Site none (typed in the address bar)", []string{"Sec-Fetch-Site", "none"}, 200},
+	} {
+		for _, path := range []string{"/api/states", "/local/x.json", "/atrium/hello"} {
+			if code, _ := get(t, g, path, c.header...); code != c.want {
+				t.Errorf("%s, %s: answered %d, want %d", c.name, path, code, c.want)
+			}
+		}
+	}
+	r := httptest.NewRequest("POST", "/api/services/light/turn_on", strings.NewReader(`{"entity_id":"light.x"}`))
+	r.Header.Set("Origin", "https://evil.example")
+	r.Header.Set("Content-Type", "text/plain")
+	w := httptest.NewRecorder()
+	g.ServeHTTP(w, r)
+	if w.Code != 403 {
+		t.Errorf("a no-cors POST from a page answered %d", w.Code)
+	}
+
+	front := httptest.NewServer(g)
+	defer front.Close()
+	ctx := context.Background()
+	opts := &websocket.DialOptions{HTTPHeader: http.Header{"Origin": {"https://evil.example"}}}
+	if _, res, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(front.URL, "http")+"/api/websocket", opts); err == nil || res == nil || res.StatusCode != 403 {
+		t.Errorf("a page's WebSocket was not refused: %v", err)
+	}
+	if c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(front.URL, "http")+"/api/websocket", nil); err != nil {
+		t.Errorf("an app's WebSocket was refused: %v", err)
+	} else {
+		c.CloseNow()
+	}
+}
+
+// A name that is not this machine's (an attacker's domain pointed at the gateway's address) is refused.
+func TestOnlyThisMachinesNamesAreAnswered(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	g := gateway(ha, Identity{Login: "owner@example.com"})
+	for host, want := range map[string]int{
+		"atrium": 200, "Atrium.tail1234.ts.net": 200, "atrium.tail1234.ts.net.": 200, "atrium.tail1234.ts.net:443": 200,
+		"100.64.0.9": 200, "100.64.0.9:80": 200,
+		"evil.example": 421, "atrium.tail1234.ts.net.evil.example": 421, "": 421,
+	} {
+		for _, path := range []string{"/api/states", "/atrium/hello"} {
+			r := httptest.NewRequest("GET", path, nil)
+			r.Host = host
+			w := httptest.NewRecorder()
+			g.ServeHTTP(w, r)
+			if w.Code != want {
+				t.Errorf("Host %q, %s: answered %d, want %d", host, path, w.Code, want)
+			}
+		}
+	}
+}
+
+func TestTheSupervisorIsNotReachable(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	g := gateway(ha, Identity{Login: "owner@example.com"})
+	for path, want := range map[string]int{"/api/hassio/supervisor/info": 403, "/api/hassio": 403, "/api/hassio_ingress/x": 403, "/api/hassio_app/x": 403, "/api/states": 200, "/api/history/period": 200} {
+		if code, _ := get(t, g, path); code != want {
+			t.Errorf("%s answered %d, want %d", path, code, want)
+		}
+	}
+}
+
+func TestTheHouseIsBuiltHereAndTheConfigurationApplies(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	g := gateway(ha, Identity{Login: "owner@example.com"})
+	code, h := get(t, g, "/atrium/house")
+	if code != 200 || h["name"] != "Test Home" {
+		t.Fatalf("house: %d %v", code, h)
+	}
+	rooms := h["rooms"].([]any)
+	den := rooms[0].(map[string]any)
+	if len(rooms) != 1 || den["name"] != "Den" || len(den["entities"].([]any)) != 1 {
+		t.Errorf("rooms: %v", rooms)
+	}
+	if names := h["names"].(map[string]any); names["light.den_lamp"] != "Lamp" {
+		t.Errorf("names: %v", names)
+	}
+
+	r := httptest.NewRequest("PUT", "/atrium/config", strings.NewReader(`{"rooms":{"den":{"name":"Study"}},"entities":{"light.den_lamp":{"name":"Reading lamp"}}}`))
+	w := httptest.NewRecorder()
+	g.ServeHTTP(w, r)
+	if w.Code != 204 {
+		t.Fatalf("put config: %d %s", w.Code, w.Body)
+	}
+	_, h = get(t, g, "/atrium/house")
+	if h["rooms"].([]any)[0].(map[string]any)["name"] != "Study" || h["names"].(map[string]any)["light.den_lamp"] != "Reading lamp" {
+		t.Errorf("the configuration did not apply: %v", h)
+	}
+	code, cfg := get(t, g, "/atrium/config")
+	if code != 200 || cfg["rooms"] == nil {
+		t.Errorf("config: %d %v", code, cfg)
+	}
+	r = httptest.NewRequest("PUT", "/atrium/config", strings.NewReader(`{"entities":{"nope":{"hidden":true}}}`))
+	w = httptest.NewRecorder()
+	g.ServeHTTP(w, r)
+	if w.Code != 400 {
+		t.Errorf("a bad configuration was accepted: %d", w.Code)
+	}
+	if code, _ := get(t, gateway(ha, Identity{Login: "stranger@example.com"}), "/atrium/house"); code != 403 {
+		t.Errorf("a stranger got the house: %d", code)
+	}
+	if h["builtAt"] == nil {
+		t.Error("house.json does not say when it was built")
+	}
+	// Only the owner (or an admin) may change the layout for everyone.
+	for login, want := range map[string]int{"guest@example.com": 403, "kid@example.com": 403, "owner@example.com": 204, "admin@example.com": 204} {
+		g := gateway(ha, Identity{Login: login})
+		g.Opts.Admins = []string{"Admin@example.com"}
+		r := httptest.NewRequest("PUT", "/atrium/config", strings.NewReader(`{}`))
+		w := httptest.NewRecorder()
+		g.ServeHTTP(w, r)
+		if w.Code != want {
+			t.Errorf("PUT by %s answered %d, want %d", login, w.Code, want)
+		}
+	}
+}
+
+func TestIngressTakesHomeAssistantsWordForWhoIsSignedIn(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	g := gateway(ha, Identity{}) // Tailscale knows nothing about these connections
+	in := Ingress{g}
+	askFrom := func(peer, path string, header ...string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", path, nil)
+		r.Host = "172.30.33.5:8099" // the Supervisor's view of the add-on: not one of the tailnet names
+		r.RemoteAddr = peer + ":41000"
+		for i := 0; i+1 < len(header); i += 2 {
+			r.Header.Set(header[i], header[i+1])
+		}
+		w := httptest.NewRecorder()
+		in.ServeHTTP(w, r)
+		return w
+	}
+	ask := func(path string, header ...string) *httptest.ResponseRecorder {
+		return askFrom("172.30.32.2", path, header...)
+	}
+	admin := []string{"X-Remote-User-Name", "admin@example.com", "X-Remote-User-Display-Name", "The admin", "X-Remote-User-Id", "u2", "X-Ingress-Path", "/api/hassio_ingress/tok"}
+	// Another container on the add-on network claiming to be the Supervisor gets nothing, whatever it sends.
+	if w := askFrom("172.30.33.9", "/api/states", admin...); w.Code != 403 {
+		t.Errorf("a request from another container answered %d", w.Code)
+	}
+	if w := ask("/atrium/hello"); w.Code != 403 {
+		t.Errorf("no user header, answered %d", w.Code)
+	}
+	w := ask("/atrium/hello", admin...)
+	var hello map[string]any
+	json.Unmarshal(w.Body.Bytes(), &hello)
+	if w.Code != 200 || hello["allowed"] != true || hello["configures"] != true || hello["login"] != "admin@example.com" || hello["name"] != "The admin" {
+		t.Errorf("hello through ingress: %d %v", w.Code, hello)
+	}
+	if w := ask("/api/states", admin...); w.Code != 200 {
+		t.Errorf("the API through ingress answered %d", w.Code)
+	}
+	if w := ask("/api/states", append(admin, "Sec-Fetch-Site", "cross-site")...); w.Code != 403 {
+		t.Errorf("a cross-site request through ingress answered %d", w.Code)
+	}
+	// A Home Assistant user who is not an administrator is not let in: through ingress everyone would get the
+	// add-on's own access. (The Supervisor refuses them first, as panel_admin is on; this does not rely on that.)
+	w = ask("/atrium/hello", "X-Remote-User-Name", "someone@example.com", "X-Remote-User-Id", "u1")
+	json.Unmarshal(w.Body.Bytes(), &hello)
+	if hello["allowed"] != false || hello["configures"] != false {
+		t.Errorf("a non-admin through ingress: %v", hello)
+	}
+	if w := ask("/api/states", "X-Remote-User-Name", "someone@example.com", "X-Remote-User-Id", "u1"); w.Code != 403 {
+		t.Errorf("a non-admin got the API through ingress: %d", w.Code)
+	}
+}
+
+func TestTheWebAppIsServedWithItsBase(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<!doctype html><html><head><title>Atrium</title></head><body></body></html>"), 0o644)
+	os.MkdirAll(filepath.Join(dir, "assets"), 0o755)
+	os.WriteFile(filepath.Join(dir, "assets", "app.js"), []byte("console.log(1)"), 0o644)
+	g := gateway(ha, Identity{Login: "owner@example.com"})
+	g.WebDir = dir
+	for path, want := range map[string]string{"/": `<base href="/">`, "/rooms": `<base href="/">`, "/assets/app.js": "console.log(1)"} {
+		r := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		g.ServeHTTP(w, r)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), want) {
+			t.Errorf("%s: %d %q", path, w.Code, w.Body.String())
+		}
+	}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Host = "172.30.33.5:8099"
+	r.RemoteAddr = "172.30.32.2:41000"
+	r.Header.Set("X-Remote-User-Name", "admin@example.com")
+	r.Header.Set("X-Remote-User-Id", "u2")
+	r.Header.Set("X-Ingress-Path", "/api/hassio_ingress/tok")
+	w := httptest.NewRecorder()
+	Ingress{g}.ServeHTTP(w, r)
+	if !strings.Contains(w.Body.String(), `<base href="/api/hassio_ingress/tok/">`) {
+		t.Errorf("through ingress: %q", w.Body.String())
+	}
+	if code, _ := get(t, gateway(ha, Identity{Login: "stranger@example.com"}), "/"); code != 403 {
+		t.Errorf("a stranger got the web app: %d", code)
+	}
+}

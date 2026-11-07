@@ -1,0 +1,31 @@
+name: Atrium
+version: "0.4.0"
+slug: atrium
+description: Reach Home Assistant from the Atrium app over your tailnet, signed in by your Tailscale identity
+url: https://github.com/cmmichael/atrium-addon
+arch:
+  - aarch64
+  - amd64
+init: false
+startup: services
+boot: auto
+homeassistant_api: true
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:home-heart
+panel_title: Atrium
+options:
+  hostname: atrium
+  allow: []
+  people: []
+  admins: []
+schema:
+  hostname: str
+  auth_key: password?
+  allow:
+    - str
+  people:
+    - login: str
+      token: password?
+  admins:
+    - str
