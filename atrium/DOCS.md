@@ -27,10 +27,12 @@ their own, add them under **People** with a long-lived access token from their H
 Atrium shows exactly what one file says: `atrium.yaml` in its own folder (`/addon_configs/df84f1fd_atrium/` on the
 Home Assistant machine, included in backups; Atrium sees nothing else of Home Assistant's files) — which
 rooms, on which floors, with which lights, shades, thermostat and speakers; the Home screen's readouts; what the
-Security, Energy and Music screens show. Nothing is guessed, so nothing wrong ever appears; a screen is empty until
-the file fills it.
+Security, Energy and Music screens show. Nothing in the file is guessed, so nothing wrong ever appears.
 
-The file is written for your house by the **atrium-mapping** skill, by a Claude:
+Until there is a file, Atrium draws a layout itself from your areas and devices (the same draft a Claude starts
+from), so the house is there from the first minute; the set-up page and the apps say it is the automatic one. The
+judgment calls are what it lacks, and that is what the real file is for. It is written for your house by the
+**atrium-mapping** skill, by a Claude:
 
 - **Recommended:** if you run the Claude Code app in Home Assistant, tell it to run the atrium-mapping skill from
   github.com/cmmichael/atrium-addon. It reads your areas and devices, decides the judgment calls (which thermostat

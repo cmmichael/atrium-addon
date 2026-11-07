@@ -71,6 +71,7 @@ type House struct {
 	Speakers []string          `json:"speakers"`
 	Names    map[string]string `json:"names"`
 	BuiltAt  string            `json:"builtAt,omitempty"` // when the add-on built this, RFC 3339
+	Auto     bool              `json:"auto,omitempty"`    // drawn by the add-on itself: there is no layout file (or it names nothing Home Assistant has)
 	// Rooms the configuration hides, so an editor can offer them back. Not shown.
 	HiddenRooms []Room `json:"hiddenRooms,omitempty"`
 }

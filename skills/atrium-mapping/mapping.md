@@ -5,7 +5,9 @@ Atrium's screens are driven by one declared layout, `atrium.yaml`, kept in the a
 is part of the add-on's backups). Only that folder is visible to the add-on, not Home Assistant's configuration
 or secrets. The add-on renders exactly what the file says, with
 live names and states from Home Assistant, and the owner's in-app preferences (hide, rename, reorder, move) on
-top. Nothing is guessed: a screen is empty until the mapping fills it.
+top. Nothing in the file is guessed; a section left out leaves its screen empty. While there is no file (or the
+file names nothing Home Assistant has), the add-on renders the draft script's output instead and marks the house
+`auto`: a starting point, not a layout.
 
 The file is written by the **atrium-mapping** skill (`skills/atrium-mapping/`), run by a Claude with access to
 the Home Assistant, or by hand. The add-on re-reads it whenever it changes, and reports problems (an entity that

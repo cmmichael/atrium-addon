@@ -159,16 +159,30 @@ func (g *Gateway) houseJSON(ctx context.Context) (built, error) {
 			return built{}, err
 		}
 		h, problems := house.Render(mapping, d, cfg)
+		auto := false
+		if len(h.Rooms) == 0 {
+			// No layout (or one that names nothing Home Assistant has): the add-on draws one itself, so the
+			// house is never blank. The file's problems are still reported below.
+			if am := g.autoMapping(context.WithoutCancel(ctx)); !am.Empty() {
+				h, _ = house.Render(am, d, cfg)
+				h.Auto, auto = true, true
+			}
+		}
 		h.BuiltAt = time.Now().UTC().Format(time.RFC3339)
 		g.mu.Lock()
-		changed := !g.rendered || strings.Join(problems, "\n") != strings.Join(g.problems, "\n")
-		g.problems, g.rendered = problems, true
+		changed := !g.rendered || strings.Join(problems, "\n") != strings.Join(g.problems, "\n") || auto != g.autoUsed
+		g.problems, g.rendered, g.autoUsed = problems, true, auto
 		g.mu.Unlock()
 		if changed {
 			for _, p := range problems {
 				log.Printf("mapping: %s", p)
 			}
-			if len(problems) == 0 {
+			switch {
+			case auto && mapping.Empty():
+				log.Printf("mapping: none; showing the automatic layout (%d rooms)", len(h.Rooms))
+			case auto:
+				log.Printf("mapping: nothing in it could be shown; showing the automatic layout (%d rooms)", len(h.Rooms))
+			case len(problems) == 0:
 				log.Printf("mapping: %d rooms, no problems", len(h.Rooms))
 			}
 		}

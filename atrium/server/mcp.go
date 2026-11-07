@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -158,7 +159,7 @@ func (g *Gateway) mcpTool(ctx context.Context, id Identity, name string, args ma
 		return g.putMapping(ctx, id, []byte(str("yaml")))
 	case "atrium_layout_status":
 		g.mu.Lock()
-		l := Layout{Path: g.mappingHostPath(), Exists: !g.mappingAt.IsZero(), Rooms: len(g.mapping.Rooms), Error: g.mappingErr, Problems: g.problems}
+		l := g.layout()
 		g.mu.Unlock()
 		out, _ := json.MarshalIndent(l, "", "  ")
 		return string(out), false, nil
@@ -202,15 +203,27 @@ func (g *Gateway) putMapping(ctx context.Context, id Identity, data []byte) (str
 	return string(out), false, nil
 }
 
-// draft runs the skill's draft script here, against Home Assistant through the Supervisor.
+// draft is the atrium_draft tool: the skill's draft, as text, or why there is none.
 func (g *Gateway) draft(ctx context.Context) (string, bool, error) {
+	text, err := g.runDraft(ctx)
+	if err != nil {
+		return err.Error(), true, nil
+	}
+	return text, false, nil
+}
+
+// runDraft runs the skill's draft script here, against Home Assistant through the Supervisor, unless Draft is set.
+func (g *Gateway) runDraft(ctx context.Context) (string, error) {
+	if g.Draft != nil {
+		return g.Draft(ctx)
+	}
 	script := filepath.Join(g.SkillDir, "draft.py")
 	if _, err := os.Stat(script); err != nil {
-		return "The add-on has no draft script.", true, nil
+		return "", errors.New("the add-on has no draft script")
 	}
 	python, err := exec.LookPath("python3")
 	if err != nil {
-		return "The add-on has no Python, so it cannot draft here; run skills/atrium-mapping/draft.py elsewhere.", true, nil
+		return "", errors.New("the add-on has no Python, so it cannot draft here; run skills/atrium-mapping/draft.py elsewhere")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
@@ -219,9 +232,45 @@ func (g *Gateway) draft(ctx context.Context) (string, bool, error) {
 	var out, errs bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errs
 	if err := cmd.Run(); err != nil {
-		return "The draft failed: " + err.Error() + "\n" + errs.String(), true, nil
+		return "", fmt.Errorf("the draft failed: %v: %s", err, strings.TrimSpace(errs.String()))
 	}
-	return out.String(), false, nil
+	return out.String(), nil
+}
+
+// How long the automatic draft is kept before it is drawn again (areas and devices change rarely), and how soon
+// it is tried again after failing.
+const autoTTL, autoRetry = 10 * time.Minute, time.Minute
+
+// autoMapping is the layout the add-on draws itself while there is no usable atrium.yaml: the skill's draft, the
+// same starting point a Claude gets, so the house shows something from the first minute. Cached; a failure keeps
+// the previous draft, if any.
+func (g *Gateway) autoMapping(ctx context.Context) house.Mapping {
+	g.mu.Lock()
+	m, at, failed := g.auto, g.autoAt, g.autoErr != ""
+	g.mu.Unlock()
+	if !at.IsZero() && time.Since(at) < autoTTL && !(failed && time.Since(at) >= autoRetry) {
+		return m
+	}
+	text, err := g.runDraft(ctx)
+	var next house.Mapping
+	if err == nil {
+		next, err = house.ParseMapping([]byte(text))
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.autoAt = time.Now()
+	if err != nil {
+		if g.autoErr != err.Error() {
+			log.Printf("automatic layout: %v", err)
+		}
+		g.autoErr = err.Error()
+		return g.auto
+	}
+	if g.autoErr != "" || len(next.Rooms) != len(g.auto.Rooms) {
+		log.Printf("automatic layout: %d rooms, drawn from the house itself", len(next.Rooms))
+	}
+	g.auto, g.autoErr = next, ""
+	return next
 }
 
 // homeText is the house as a Claude would want to read it: one line per entity, grouped by area.

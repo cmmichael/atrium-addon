@@ -40,7 +40,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.5.8"
+const version = "0.5.9"
 
 // Person is a Tailscale login that may use the gateway, optionally as a Home Assistant user of its own.
 type Person struct {
@@ -99,6 +99,9 @@ type Gateway struct {
 	// must pass both, on every request: container addresses are reused when containers restart.
 	ResolveAddon func(slug string) []string
 	CheckAddon   func(slug, ip string) bool
+	// Drafts a layout from the house itself, used while there is no atrium.yaml (nil: the skill's draft script,
+	// run here with Python). Tests put a fixed draft in.
+	Draft func(ctx context.Context) (string, error)
 
 	mu         sync.Mutex
 	home       string
@@ -108,6 +111,10 @@ type Gateway struct {
 	mappingAt  time.Time // the file's modification time last read
 	problems   []string  // what the last render could not use
 	rendered   bool      // there has been a render (the first one is logged whatever it found)
+	auto       house.Mapping
+	autoAt     time.Time // when the automatic draft was made (zero: never)
+	autoErr    string    // why it could not be, if it could not
+	autoUsed   bool      // the house being served is the automatic draft
 	generation int       // bumped on every configuration or mapping change
 	house      built
 	building   singleflight.Group
@@ -130,11 +137,20 @@ type Setup struct {
 
 // Layout is what the set-up page says about the mapping: is there one, and what in it could not be used.
 type Layout struct {
-	Path     string   `json:"path"`               // where atrium.yaml is read from, as Home Assistant sees it
-	Exists   bool     `json:"exists"`             // there is a file
-	Rooms    int      `json:"rooms"`              // rooms it names
-	Error    string   `json:"error,omitempty"`    // the file was refused (bad YAML, a room without an id…)
-	Problems []string `json:"problems,omitempty"` // what the last render dropped
+	Path      string   `json:"path"`                // where atrium.yaml is read from, as Home Assistant sees it
+	Exists    bool     `json:"exists"`              // there is a file
+	Rooms     int      `json:"rooms"`               // rooms it names
+	Error     string   `json:"error,omitempty"`     // the file was refused (bad YAML, a room without an id…)
+	Problems  []string `json:"problems,omitempty"`  // what the last render dropped
+	Auto      bool     `json:"auto"`                // the house shown is the add-on's own draft, not the file
+	AutoRooms int      `json:"autoRooms,omitempty"` // rooms in that draft
+	AutoError string   `json:"autoError,omitempty"` // why there is no draft either
+}
+
+// layout is the Layout as things stand; g.mu held.
+func (g *Gateway) layout() Layout {
+	return Layout{Path: g.mappingHostPath(), Exists: !g.mappingAt.IsZero(), Rooms: len(g.mapping.Rooms), Error: g.mappingErr, Problems: g.problems,
+		Auto: g.autoUsed, AutoRooms: len(g.auto.Rooms), AutoError: g.autoErr}
 }
 
 // isMine says whether a request's Host names this machine (with or without a port).
@@ -397,7 +413,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		setup := g.setup
 		setup.Owner = g.Owner
 		setup.Writers = append([]string{}, g.Opts.Writers...)
-		setup.Layout = Layout{Path: g.mappingHostPath(), Exists: !g.mappingAt.IsZero(), Rooms: len(g.mapping.Rooms), Error: g.mappingErr, Problems: g.problems}
+		setup.Layout = g.layout()
 		g.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
@@ -768,9 +784,10 @@ func main() {
 	g.Slug = addonSlug(token)
 	g.MappingPath = env("ATRIUM_MAPPING", "/config/atrium.yaml") // the add-on's own folder (addon_config), not Home Assistant's
 	if !g.readMapping() {
-		log.Printf("mapping: no %s yet; the house is empty until the atrium-mapping skill (or you) writes one", g.MappingPath)
+		log.Printf("mapping: no %s yet; the house is drawn automatically until the atrium-mapping skill (or you) writes one", g.MappingPath)
 	}
 	go g.watchMapping()
+	go g.houseJSON(context.Background()) // the first render (and the automatic draft, if there is no layout) before anyone asks
 
 	// The Home Assistant side: the sidebar panel, through the Supervisor's ingress. Only the Supervisor's own
 	// address is believed on that port (resolved once; 172.30.32.2 is its usual address).
