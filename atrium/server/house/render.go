@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // The order entities take within a room.
@@ -83,6 +84,10 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 	}
 
 	h := newHouse(firstOf(c.Name, m.Name, d.Name, "Home"))
+	h.Layout = "default"
+	if !m.Empty() {
+		h.Layout = "custom"
+	}
 
 	// MARK: Floors — Home Assistant's by level, the mapping's and the owner's own after, ranked where asked
 	floorRankKey := map[string]int{}
@@ -361,7 +366,23 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 			rest = append(rest, SceneRef{Entity: e.id, Name: firstOf(c.Entities[e.id].Name, m.Names[e.id], e.name), Room: roomOf(e.area)})
 		}
 	}
-	sort.SliceStable(rest, func(i, j int) bool { return rest[i].Name < rest[j].Name })
+	// Most recently used first (a scene's state is when it was last activated), then by name. The viewers keep
+	// this order live with the same rule as scenes run.
+	used := func(id string) time.Time {
+		if st := d.States[id]; st != nil {
+			if t, err := time.Parse(time.RFC3339Nano, st.State); err == nil {
+				return t
+			}
+		}
+		return time.Time{}
+	}
+	sort.SliceStable(rest, func(i, j int) bool {
+		a, b := used(rest[i].Entity), used(rest[j].Entity)
+		if !a.Equal(b) {
+			return a.After(b)
+		}
+		return rest[i].Name < rest[j].Name
+	})
 	h.Scenes = append(h.Scenes, rest...)
 
 	// MARK: The custom screens — the file's section where there is one, else the add-on's own guess

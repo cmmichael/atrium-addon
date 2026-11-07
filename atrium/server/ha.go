@@ -233,6 +233,38 @@ func (g *Gateway) houseJSON(ctx context.Context) (built, error) {
 	return v.(built), nil
 }
 
+// defaultHouseJSON is the house as the add-on draws it with no atrium.yaml (the owner's preferences still
+// apply), cached like the real one.
+func (g *Gateway) defaultHouseJSON(ctx context.Context) (built, error) {
+	g.mu.Lock()
+	cached, cfg := g.houseDefault, g.config
+	g.mu.Unlock()
+	if cached.data != nil && time.Since(cached.at) < houseTTL {
+		return cached, nil
+	}
+	v, err, _ := g.building.Do("default", func() (any, error) {
+		d, err := g.dump(context.WithoutCancel(ctx))
+		if err != nil {
+			return built{}, err
+		}
+		h, _ := house.Render(house.Mapping{}, d, cfg)
+		h.BuiltAt = time.Now().UTC().Format(time.RFC3339)
+		data, err := json.Marshal(h)
+		if err != nil {
+			return built{}, err
+		}
+		b := built{data: data, etag: fmt.Sprintf(`"d%x"`, fnv(data)), at: time.Now()}
+		g.mu.Lock()
+		g.houseDefault = b
+		g.mu.Unlock()
+		return b, nil
+	})
+	if err != nil {
+		return built{}, err
+	}
+	return v.(built), nil
+}
+
 func fnv(data []byte) uint64 {
 	h := uint64(14695981039346656037)
 	for _, b := range data {
@@ -244,7 +276,11 @@ func fnv(data []byte) uint64 {
 
 // serveHouse answers GET /atrium/house.
 func (g *Gateway) serveHouse(w http.ResponseWriter, r *http.Request) {
-	b, err := g.houseJSON(r.Context())
+	get := g.houseJSON
+	if r.URL.Query().Get("layout") == "default" { // the defaults alone, to compare with the file's layout
+		get = g.defaultHouseJSON
+	}
+	b, err := get(r.Context())
 	if err != nil {
 		http.Error(w, "Home Assistant did not answer: "+err.Error(), http.StatusBadGateway)
 		return
@@ -346,7 +382,7 @@ func (g *Gateway) serveConfig(w http.ResponseWriter, r *http.Request, id Identit
 		g.mu.Lock()
 		g.config = cfg
 		g.generation++
-		g.house = built{} // rebuild on the next request
+		g.house, g.houseDefault = built{}, built{} // rebuild on the next request
 		g.mu.Unlock()
 		log.Printf("configuration changed by %s", id.Login)
 		w.WriteHeader(http.StatusNoContent)

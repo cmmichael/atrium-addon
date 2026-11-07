@@ -88,6 +88,9 @@ type House struct {
 	Speakers []string          `json:"speakers"`
 	Names    map[string]string `json:"names"`
 	BuiltAt  string            `json:"builtAt,omitempty"` // when the add-on built this, RFC 3339
+	// "custom": the add-on's defaults with atrium.yaml on top; "default": the defaults alone (no file, or a
+	// viewer asked for them with ?layout=default to compare).
+	Layout string `json:"layout,omitempty"`
 	// Music Assistant, when the house has it: its config entry (its services need it) and, for each speaker
 	// shown, its Music Assistant twin (play, search, transfer go to the twin).
 	MusicAssistant *MusicAssistant `json:"musicAssistant,omitempty"`

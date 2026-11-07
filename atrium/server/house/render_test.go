@@ -185,7 +185,8 @@ func TestTheRoomsAreDrawnFromHomeAssistantWithNoMappingAtAll(t *testing.T) {
 		t.Errorf("music assistant: %+v", h.MusicAssistant)
 	}
 	eq(t, "unassigned", h.Rooms[3].Entities, []string{"climate.hall"}) // the kiosk "light" and the camera's speaker are not controls
-	eq(t, "scenes", h.Scenes, []SceneRef{{Entity: "scene.movie", Name: "Movie"}, {Entity: "scene.bed_night", Name: "Night", Room: "bed"}})
+	// Most recently used first: the bedroom's Night ran on the 2nd, Movie on the 1st.
+	eq(t, "scenes", h.Scenes, []SceneRef{{Entity: "scene.bed_night", Name: "Night", Room: "bed"}, {Entity: "scene.movie", Name: "Movie"}})
 	if !(Mapping{}).Empty() || (Mapping{}).Custom() {
 		t.Error("an empty mapping must say so")
 	}

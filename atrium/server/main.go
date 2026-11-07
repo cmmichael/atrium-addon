@@ -42,7 +42,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.8.0"
+const version = "0.8.1"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -110,21 +110,22 @@ type Gateway struct {
 	ResolveAddon func(slug string) []string
 	CheckAddon   func(slug, ip string) bool
 
-	mu         sync.Mutex
-	home       string
-	config     house.Config
-	mapping    house.Mapping
-	mappingErr string    // why the file was refused, if it was (the last good mapping stays in use)
-	mappingAt  time.Time // the file's modification time last read
-	problems   []string  // what the last render could not use
-	rooms      int       // rooms in the last render
-	rendered   bool      // there has been a render (the first one is logged whatever it found)
-	generation int       // bumped on every configuration or mapping change
-	house      built
-	building   singleflight.Group
-	admins     map[string]bool // Home Assistant user id → is an administrator
-	adminsAt   time.Time
-	setup      Setup
+	mu           sync.Mutex
+	home         string
+	config       house.Config
+	mapping      house.Mapping
+	mappingErr   string    // why the file was refused, if it was (the last good mapping stays in use)
+	mappingAt    time.Time // the file's modification time last read
+	problems     []string  // what the last render could not use
+	rooms        int       // rooms in the last render
+	rendered     bool      // there has been a render (the first one is logged whatever it found)
+	generation   int       // bumped on every configuration or mapping change
+	house        built
+	houseDefault built // the same without atrium.yaml, for ?layout=default
+	building     singleflight.Group
+	admins       map[string]bool // Home Assistant user id → is an administrator
+	adminsAt     time.Time
+	setup        Setup
 }
 
 // Setup is where the add-on is in joining the tailnet, for the panel to walk the owner through it: it is
@@ -644,7 +645,7 @@ func (g *Gateway) readMapping() bool {
 		}
 		g.mapping, g.mappingErr, g.mappingAt = house.Mapping{}, "", time.Time{}
 		g.generation++
-		g.house = built{} // rebuild on the next request
+		g.house, g.houseDefault = built{}, built{} // rebuild on the next request
 		log.Printf("mapping: %s is gone; the rooms stay, the custom screens are empty until there is one", g.MappingPath)
 		return true
 	case err != nil:
@@ -654,7 +655,7 @@ func (g *Gateway) readMapping() bool {
 	}
 	g.mappingAt = info.ModTime()
 	g.generation++
-	g.house = built{} // rebuild on the next request
+	g.house, g.houseDefault = built{}, built{} // rebuild on the next request
 	m, err := house.LoadMapping(g.MappingPath)
 	if err != nil {
 		g.mappingErr = err.Error()

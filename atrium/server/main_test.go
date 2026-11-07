@@ -703,3 +703,18 @@ func TestHelloSaysWhichVersionsFit(t *testing.T) {
 		}
 	}
 }
+
+func TestTheDefaultLayoutCanBeSeenBesideTheFile(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	g := gateway(ha, Identity{Login: "owner@example.com"})
+	g.MappingPath = filepath.Join(t.TempDir(), "atrium.yaml")
+	os.WriteFile(g.MappingPath, []byte("rooms:\n  - id: den\n    name: Study\n"), 0o644)
+	g.readMapping()
+	if _, h := get(t, g, "/atrium/house"); h["layout"] != "custom" || h["rooms"].([]any)[0].(map[string]any)["name"] != "Study" {
+		t.Errorf("the file's layout: %v", h)
+	}
+	if _, h := get(t, g, "/atrium/house?layout=default"); h["layout"] != "default" || h["rooms"].([]any)[0].(map[string]any)["name"] != "Den" {
+		t.Errorf("the default layout: %v", h)
+	}
+}
