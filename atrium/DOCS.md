@@ -65,6 +65,13 @@ Atrium re-reads the file whenever it changes and reports, in its log and on its 
 Home Assistant does not have. In the app you can still hide, rename, move and reorder rooms and things; those
 preferences are kept separately and survive a new layout.
 
+## Televisions
+
+Every television Home Assistant knows (Samsung, Google TV and Android TV, Roku, Apple TV, Sony, LG) gets a
+remote in its room: power, inputs, a d-pad, transport and volume, with the keys the integration provides.
+Where the room is more than one box — a receiver for the sound, an HDMI matrix for the inputs — write a Home
+Assistant script for each input and map it in `atrium.yaml` under `remotes` (the atrium-mapping skill does this).
+
 ## Cameras
 
 Cameras play live in the app and on the web: UniFi Protect through Atrium (so anywhere Atrium works), Nest over

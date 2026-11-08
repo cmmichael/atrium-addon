@@ -65,6 +65,51 @@ type Door struct {
 	Name    string `json:"name"`
 }
 
+// Action is one Home Assistant service call: what a remote's key, input or button does.
+type Action struct {
+	Domain  string         `json:"domain"`
+	Service string         `json:"service"`
+	Entity  string         `json:"entity,omitempty"`
+	Data    map[string]any `json:"data,omitempty"`
+}
+
+// Remote is a television, a streamer or a receiver as one set of buttons, every key already resolved to an
+// action. The apps draw the keys they are given: a d-pad when there are arrows, transport when there is play,
+// a number pad when there are digits. Keys: power_on, power_off (the player's; "power" when only the remote's
+// toggle is known), up, down, left, right, select, back, home, menu, info, guide, exit, play, pause, play_pause,
+// rewind, fast_forward, previous, next, volume_up, volume_down, mute, channel_up, channel_down, 0–9, and
+// any the file adds (art, say). A mute action without is_volume_muted toggles.
+type Remote struct {
+	ID      string            `json:"id"`
+	Name    string            `json:"name"`
+	Room    string            `json:"room,omitempty"`
+	Player  string            `json:"player,omitempty"` // media_player: on or off, and what is playing
+	Volume  string            `json:"volume,omitempty"` // media_player with a volume level to show
+	Keys    map[string]Action `json:"keys"`
+	Inputs  *Inputs           `json:"inputs,omitempty"`
+	Buttons []RemoteButton    `json:"buttons,omitempty"`
+}
+
+// Inputs is the input (or app) picker: a media player's own source list, live from its state (select_source),
+// or the file's options, each its own action.
+type Inputs struct {
+	Entity  string        `json:"entity,omitempty"`
+	Options []InputOption `json:"options,omitempty"`
+}
+
+type InputOption struct {
+	Name   string `json:"name"`
+	Action Action `json:"action"`
+	Entity string `json:"entity,omitempty"` // lit while this entity…
+	Value  string `json:"value,omitempty"`  // …is in this state
+}
+
+type RemoteButton struct {
+	Name   string `json:"name"`
+	Icon   string `json:"icon,omitempty"` // an SF Symbol name
+	Action Action `json:"action"`
+}
+
 // Energy is what the Energy screen shows.
 type Energy struct {
 	SolarPower string   `json:"solarPower,omitempty"`
@@ -96,6 +141,8 @@ type House struct {
 	MusicAssistant *MusicAssistant `json:"musicAssistant,omitempty"`
 	// Rooms the configuration hides, so an editor can offer them back. Not shown.
 	HiddenRooms []Room `json:"hiddenRooms,omitempty"`
+	// Televisions and the like, each a set of buttons: the file's, or one per television found.
+	Remotes []Remote `json:"remotes,omitempty"`
 }
 
 func newHouse(name string) House {

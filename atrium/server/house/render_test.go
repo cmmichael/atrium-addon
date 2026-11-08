@@ -3,7 +3,10 @@ package house
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func j(s string) any {
@@ -27,7 +30,8 @@ func smallHome() Dump {
 	d := Dump{Name: "Test Home", States: map[string]*State{}}
 	d.Floors = list(`[{"floor_id":"up","name":"Upstairs","level":1},{"floor_id":"down","name":"Downstairs","level":0}]`)
 	d.Areas = list(`[{"area_id":"kitchen","name":"Kitchen","floor_id":"down"},{"area_id":"bed","name":"Bedroom","floor_id":"up"},{"area_id":"shed","name":"Shed","floor_id":null},{"area_id":"empty","name":"Empty","floor_id":"down"}]`)
-	d.Devices = list(`[{"id":"dev1","area_id":"kitchen"},{"id":"car","area_id":"shed"},{"id":"sonos-kitchen","name":"Kitchen","area_id":"kitchen"},{"id":"ma-kitchen","name":"Kitchen"}]`)
+	d.Devices = list(`[{"id":"dev1","area_id":"kitchen"},{"id":"car","area_id":"shed"},{"id":"sonos-kitchen","name":"Kitchen","area_id":"kitchen"},{"id":"ma-kitchen","name":"Kitchen"},
+		{"id":"frame","name":"Bedroom Frame","area_id":"bed"},{"id":"frame2","name":"Bedroom Frame","area_id":"bed"},{"id":"gtv","name":"Kitchen TV Remote","area_id":"kitchen"}]`)
 	reg := func(id, area, device, platform string, hidden bool) map[string]any {
 		e := map[string]any{"entity_id": id, "platform": platform}
 		if area != "" {
@@ -53,6 +57,12 @@ func smallHome() Dump {
 		reg("binary_sensor.front_door", "", "bell", "demo", false), reg("scene.bed_night", "bed", "", "hue", false),
 		reg("light.oven_light", "kitchen", "", "miele", false),
 		map[string]any{"entity_id": "media_player.kitchen_ma", "platform": "music_assistant", "device_id": "ma-kitchen", "config_entry_id": "ma-entry"},
+		// A Frame TV in the bedroom (its remote and its player on one device, known to two integrations), a Google TV
+		// in the kitchen, and a receiver with no remote of its own.
+		reg("media_player.bed_frame", "", "frame", "samsungtv", false), reg("remote.bed_frame", "", "frame", "samsungtv", false),
+		reg("media_player.bed_frame_smart", "", "frame2", "samsungtv_smart", false), reg("remote.bed_frame_smart", "", "frame2", "samsungtv_smart", false),
+		reg("media_player.kitchen_gtv", "", "gtv", "androidtv_remote", false), reg("remote.kitchen_gtv", "", "gtv", "androidtv_remote", false),
+		reg("media_player.avr", "kitchen", "", "songpal", false), reg("script.matrix_ps5", "", "", "script", false), reg("select.matrix_out_1", "", "", "demo", false),
 	}
 	st := func(id, state, attrs string) {
 		a, _ := j(attrs).(map[string]any)
@@ -83,6 +93,15 @@ func smallHome() Dump {
 	st("weather.forecast_home", "sunny", `{}`)
 	st("person.a", "home", `{}`)
 	st("alarm_control_panel.house", "disarmed", `{}`)
+	st("media_player.bed_frame", "off", `{"friendly_name":"Bedroom Frame","device_class":"tv","source_list":["TV","HDMI 1","Netflix"],"volume_level":0.2}`)
+	st("remote.bed_frame", "on", `{}`)
+	st("media_player.bed_frame_smart", "off", `{"friendly_name":"Bedroom Frame","device_class":"tv","source_list":["TV"]}`)
+	st("remote.bed_frame_smart", "on", `{}`)
+	st("media_player.kitchen_gtv", "on", `{"friendly_name":"Kitchen TV","device_class":"tv","source_list":["YouTube","Plex"]}`)
+	st("remote.kitchen_gtv", "on", `{}`)
+	st("media_player.avr", "on", `{"friendly_name":"Receiver","device_class":"receiver","source_list":["HDMI1","HDMI2"],"volume_level":0.4}`)
+	st("script.matrix_ps5", "off", `{}`)
+	st("select.matrix_out_1", "Apple TV", `{"options":["Apple TV","PS5"]}`)
 	return d
 }
 
@@ -345,4 +364,130 @@ func TestCameraNamesAndChannels(t *testing.T) {
 	eq(t, "camera word", cameraName("Back Yard Camera"), "Back Yard")
 	eq(t, "lower case", cameraName("Back Yard camera"), "Back Yard")
 	eq(t, "only the word", cameraName("Camera"), "Camera")
+}
+
+// One remote per television, paired on the device, keys from the integration's own names; a television that two
+// integrations know is one remote (the core integration's).
+func TestTelevisionsBecomeRemotesByThemselves(t *testing.T) {
+	h, problems := Render(Mapping{}, smallHome(), Config{})
+	eq(t, "problems", problems, []string(nil))
+	eq(t, "remotes", names2(h.Remotes), []string{"Bedroom Frame", "Kitchen TV"})
+	frame, gtv := h.Remotes[0], h.Remotes[1]
+	eq(t, "frame id", frame.ID, "remote.bed_frame")
+	eq(t, "frame room", frame.Room, "bed")
+	eq(t, "frame player", frame.Player, "media_player.bed_frame")
+	eq(t, "frame volume", frame.Volume, "media_player.bed_frame")
+	eq(t, "frame up", frame.Keys["up"], Action{Domain: "remote", Service: "send_command", Entity: "remote.bed_frame", Data: map[string]any{"command": "KEY_UP"}})
+	eq(t, "frame on", frame.Keys["power_on"], Action{Domain: "media_player", Service: "turn_on", Entity: "media_player.bed_frame"})
+	eq(t, "frame play/pause", frame.Keys["play_pause"], Action{Domain: "media_player", Service: "media_play_pause", Entity: "media_player.bed_frame"})
+	eq(t, "frame volume up", frame.Keys["volume_up"].Data["command"], any("KEY_VOLUP"))
+	if _, has := frame.Keys["power"]; has {
+		t.Error("the remote's own power key (art mode on a Frame) should not be a default")
+	}
+	eq(t, "frame inputs", frame.Inputs, &Inputs{Entity: "media_player.bed_frame"})
+	eq(t, "gtv select", gtv.Keys["select"].Data["command"], any("DPAD_CENTER"))
+	eq(t, "gtv volume", gtv.Volume, "") // no level to show
+	eq(t, "tv name", h.Names["media_player.kitchen_gtv"], "Kitchen TV")
+	// The receiver alone is not a remote (nothing to press that the add-on knows), nor a room tile.
+	for _, r := range h.Rooms {
+		if contains(r.Entities, "media_player.avr") || contains(r.Entities, "media_player.bed_frame") {
+			t.Errorf("a television or receiver in room %s's tiles: %v", r.Name, r.Entities)
+		}
+	}
+	// The guesses, in the file's shape.
+	auto := AutoMapping(smallHome())
+	eq(t, "auto remotes", len(auto.Remotes), 2)
+	eq(t, "auto frame", auto.Remotes[0], RemoteMapping{Remote: "remote.bed_frame", Player: "media_player.bed_frame", Name: "Bedroom Frame"})
+}
+
+// The file's remotes: a receiver's volume, inputs through a matrix script, a key moved to another device, a key
+// dropped, a button; and what cannot be used is reported, not fatal.
+func TestTheFileMapsARemoteToScriptsAndServices(t *testing.T) {
+	m, err := ParseMapping([]byte(`
+version: 2
+remotes:
+  - id: living
+    name: Living room
+    room: kitchen
+    remote: remote.bed_frame
+    player: media_player.bed_frame
+    volume: media_player.avr
+    inputs:
+      - name: Apple TV
+        action: { select: select.matrix_out_1, option: Apple TV }
+        when: { select.matrix_out_1: Apple TV }
+      - name: PS5
+        action: script.matrix_ps5
+        when: { select.matrix_out_1: PS5 }
+      - name: Nowhere
+        action: script.missing
+    keys:
+      home: { remote: remote.kitchen_gtv, command: HOME }
+      art: { remote: remote.bed_frame, command: KEY_POWER }
+      guide: none
+      bad: { service: media_player.select_source, entity: media_player.gone }
+    buttons:
+      - { name: Movie night, icon: film, action: scene.movie }
+  - name: Just the receiver
+    inputs: media_player.avr
+    keys:
+      power_on: { service: media_player.turn_on, entity: media_player.avr }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, problems := Render(m, smallHome(), Config{})
+	eq(t, "problems", problems, []string{"remote living, key bad: Home Assistant has no media_player.gone", "remote living, input Nowhere: Home Assistant has no script.missing"})
+	eq(t, "remotes", names2(h.Remotes), []string{"Living room", "Just the receiver"})
+	r := h.Remotes[0]
+	eq(t, "id", r.ID, "living")
+	eq(t, "room", r.Room, "kitchen")
+	eq(t, "volume", r.Volume, "media_player.avr")
+	eq(t, "volume up", r.Keys["volume_up"], Action{Domain: "media_player", Service: "volume_up", Entity: "media_player.avr"})
+	eq(t, "mute", r.Keys["mute"], Action{Domain: "media_player", Service: "volume_mute", Entity: "media_player.avr"})
+	eq(t, "home", r.Keys["home"], Action{Domain: "remote", Service: "send_command", Entity: "remote.kitchen_gtv", Data: map[string]any{"command": "HOME"}})
+	eq(t, "art", r.Keys["art"].Data["command"], any("KEY_POWER"))
+	if _, has := r.Keys["guide"]; has {
+		t.Error("guide: none should drop the key")
+	}
+	eq(t, "inputs", r.Inputs.Options, []InputOption{
+		{Name: "Apple TV", Action: Action{Domain: "select", Service: "select_option", Entity: "select.matrix_out_1", Data: map[string]any{"option": "Apple TV"}}, Entity: "select.matrix_out_1", Value: "Apple TV"},
+		{Name: "PS5", Action: Action{Domain: "script", Service: "turn_on", Entity: "script.matrix_ps5"}, Entity: "select.matrix_out_1", Value: "PS5"},
+	})
+	eq(t, "button", r.Buttons, []RemoteButton{{Name: "Movie night", Icon: "film", Action: Action{Domain: "scene", Service: "turn_on", Entity: "scene.movie"}}})
+	avr := h.Remotes[1]
+	eq(t, "avr id", avr.ID, "")
+	eq(t, "avr inputs", avr.Inputs, &Inputs{Entity: "media_player.avr"})
+	eq(t, "avr keys", len(avr.Keys), 1)
+	// The file's shape round-trips (atrium_auto prints it).
+	if out, err := yaml.Marshal(m); err != nil || !strings.Contains(string(out), "option: PS5") && !strings.Contains(string(out), "action: script.matrix_ps5") {
+		t.Errorf("marshal: %v\n%s", err, out)
+	}
+	// Bad files are refused whole.
+	for _, bad := range []string{
+		"remotes:\n  - keys: {home: {remote: light.x, command: HOME}}\n",
+		"remotes:\n  - keys: {home: 42}\n",
+		"remotes:\n  - inputs: [{action: script.x}]\n",
+		"remotes:\n  - buttons: [{name: X, action: {service: nodot}}]\n",
+	} {
+		if _, err := ParseMapping([]byte(bad)); err == nil {
+			t.Errorf("accepted %q", bad)
+		}
+	}
+	// An entity alone that does not say what to call is a problem at render, not a refusal.
+	m2, err := ParseMapping([]byte("remotes:\n  - name: X\n    player: media_player.avr\n    keys: {home: media_player.avr}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, problems := Render(m2, smallHome(), Config{}); len(problems) != 1 || !strings.Contains(problems[0], "does not say what to call") {
+		t.Errorf("problems: %v", problems)
+	}
+}
+
+func names2(rs []Remote) []string {
+	out := []string{}
+	for _, r := range rs {
+		out = append(out, r.Name)
+	}
+	return out
 }

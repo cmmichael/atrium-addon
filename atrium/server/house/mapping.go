@@ -28,6 +28,196 @@ type Mapping struct {
 	Energy   *EnergyMapping    `yaml:"energy,omitempty"`
 	Music    *MusicMapping     `yaml:"music,omitempty"`
 	Names    map[string]string `yaml:"names,omitempty"`
+	// Remotes: absent, one per television the add-on finds; given, exactly these.
+	Remotes []RemoteMapping `yaml:"remotes,omitempty"`
+}
+
+// RemoteMapping is one remote in the file. The keys the integration knows come by themselves from `remote` (its
+// remote entity) and `player` (its media player: power, play/pause, what is playing, its source list as inputs);
+// `keys`, `inputs` and `buttons` map the rest to Home Assistant scripts and services. `volume` names a receiver
+// whose volume the remote drives instead of the television's.
+type RemoteMapping struct {
+	ID      string                   `yaml:"id,omitempty"`
+	Name    string                   `yaml:"name,omitempty"`
+	Room    string                   `yaml:"room,omitempty"`
+	Remote  string                   `yaml:"remote,omitempty"`
+	Player  string                   `yaml:"player,omitempty"`
+	Volume  string                   `yaml:"volume,omitempty"`
+	Inputs  *InputsMapping           `yaml:"inputs,omitempty"`
+	Keys    map[string]ActionMapping `yaml:"keys,omitempty"`
+	Buttons []ButtonMapping          `yaml:"buttons,omitempty"`
+}
+
+// InputsMapping is `inputs: media_player.avr` (its source list, live) or a list of options, each an action and,
+// optionally, `when: {select.matrix_out_1: PS5}` for which one is lit.
+type InputsMapping struct {
+	Entity  string
+	Options []InputOptionMapping
+}
+
+type InputOptionMapping struct {
+	Name   string         `yaml:"name"`
+	Action ActionMapping  `yaml:"action"`
+	When   map[string]any `yaml:"when,omitempty"`
+}
+
+func (in *InputsMapping) UnmarshalYAML(n *yaml.Node) error {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		in.Entity = n.Value
+		if domain(in.Entity) == "" {
+			return fmt.Errorf("inputs: %q is not an entity id", n.Value)
+		}
+	case yaml.SequenceNode:
+		if err := n.Decode(&in.Options); err != nil {
+			return err
+		}
+		for i, o := range in.Options {
+			if o.Name == "" {
+				return fmt.Errorf("inputs[%d] has no name", i)
+			}
+			if len(o.When) > 1 {
+				return fmt.Errorf("inputs %q: when takes one entity", o.Name)
+			}
+			for id := range o.When {
+				if domain(id) == "" {
+					return fmt.Errorf("inputs %q: when: %q is not an entity id", o.Name, id)
+				}
+			}
+		}
+	default:
+		return errors.New("inputs: an entity id or a list of options")
+	}
+	return nil
+}
+
+func (in InputsMapping) MarshalYAML() (any, error) {
+	if in.Entity != "" {
+		return in.Entity, nil
+	}
+	return in.Options, nil
+}
+
+type ButtonMapping struct {
+	Name   string        `yaml:"name"`
+	Icon   string        `yaml:"icon,omitempty"`
+	Action ActionMapping `yaml:"action"`
+}
+
+// ActionMapping is a service call in the file's short forms:
+//
+//	script.movie_night                  # a script or scene: turn_on; a button: press; an automation: trigger;
+//	                                    # a switch, light or input_boolean: toggle
+//	{remote: remote.tv, command: KEY_X} # remote.send_command
+//	{select: select.matrix, option: PS5} # select.select_option
+//	{service: media_player.select_source, entity: media_player.avr, data: {source: HDMI 2}}
+//	none                                # (a key only) not drawn
+type ActionMapping struct {
+	Entity  string
+	Service string // "domain.service"
+	Data    map[string]any
+	Remote  string
+	Command string
+	Select  string
+	Option  string
+	None    bool
+}
+
+func (a *ActionMapping) UnmarshalYAML(n *yaml.Node) error {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		if n.Value == None {
+			a.None = true
+			return nil
+		}
+		if domain(n.Value) == "" {
+			return fmt.Errorf("%q is not an entity id (or none)", n.Value)
+		}
+		a.Entity = n.Value
+	case yaml.MappingNode:
+		var m struct {
+			Entity  string         `yaml:"entity"`
+			Service string         `yaml:"service"`
+			Data    map[string]any `yaml:"data"`
+			Remote  string         `yaml:"remote"`
+			Command string         `yaml:"command"`
+			Select  string         `yaml:"select"`
+			Option  string         `yaml:"option"`
+		}
+		if err := n.Decode(&m); err != nil {
+			return err
+		}
+		*a = ActionMapping{Entity: m.Entity, Service: m.Service, Data: m.Data, Remote: m.Remote, Command: m.Command, Select: m.Select, Option: m.Option}
+		switch {
+		case a.Remote != "" || a.Command != "":
+			if a.Remote == "" || a.Command == "" || domain(a.Remote) != "remote" {
+				return errors.New("remote and command go together, and remote is a remote.* entity")
+			}
+		case a.Select != "" || a.Option != "":
+			if a.Select == "" || a.Option == "" || domain(a.Select) == "" {
+				return errors.New("select and option go together")
+			}
+		case a.Service != "":
+			if !strings.Contains(a.Service, ".") {
+				return fmt.Errorf("service %q is not domain.service", a.Service)
+			}
+			if a.Entity != "" && domain(a.Entity) == "" {
+				return fmt.Errorf("%q is not an entity id", a.Entity)
+			}
+		default:
+			return errors.New("an action is an entity id, {remote, command}, {select, option} or {service, entity, data}")
+		}
+	default:
+		return errors.New("an action is an entity id or a mapping")
+	}
+	return nil
+}
+
+func (a ActionMapping) MarshalYAML() (any, error) {
+	switch {
+	case a.None:
+		return None, nil
+	case a.Remote != "":
+		return map[string]string{"remote": a.Remote, "command": a.Command}, nil
+	case a.Select != "":
+		return map[string]string{"select": a.Select, "option": a.Option}, nil
+	case a.Service != "":
+		out := map[string]any{"service": a.Service}
+		if a.Entity != "" {
+			out["entity"] = a.Entity
+		}
+		if len(a.Data) > 0 {
+			out["data"] = a.Data
+		}
+		return out, nil
+	}
+	return a.Entity, nil
+}
+
+// action resolves the short form to the call. A zero Action (no domain) means none.
+func (a ActionMapping) action() (Action, error) {
+	switch {
+	case a.None:
+		return Action{}, nil
+	case a.Remote != "":
+		return sendCommand(a.Remote, a.Command), nil
+	case a.Select != "":
+		return Action{Domain: "select", Service: "select_option", Entity: a.Select, Data: map[string]any{"option": a.Option}}, nil
+	case a.Service != "":
+		dom, svc, _ := strings.Cut(a.Service, ".")
+		return Action{Domain: dom, Service: svc, Entity: a.Entity, Data: a.Data}, nil
+	}
+	switch d := domain(a.Entity); d {
+	case "script", "scene":
+		return Action{Domain: d, Service: "turn_on", Entity: a.Entity}, nil
+	case "button", "input_button":
+		return Action{Domain: d, Service: "press", Entity: a.Entity}, nil
+	case "automation":
+		return Action{Domain: d, Service: "trigger", Entity: a.Entity}, nil
+	case "switch", "light", "input_boolean":
+		return Action{Domain: d, Service: "toggle", Entity: a.Entity}, nil
+	}
+	return Action{}, fmt.Errorf("%s alone does not say what to call: give {service: …, entity: %s}", a.Entity, a.Entity)
 }
 
 type FloorMapping struct {
@@ -128,12 +318,12 @@ type MusicMapping struct {
 // Empty says whether the file adds nothing: no overrides and no custom screen.
 func (m Mapping) Empty() bool {
 	return m.Name == "" && len(m.Floors) == 0 && len(m.Rooms) == 0 && len(m.Hide) == 0 && len(m.Scenes) == 0 &&
-		!m.Home.set() && m.Security == nil && m.Energy == nil && m.Music == nil && len(m.Names) == 0
+		!m.Home.set() && m.Security == nil && m.Energy == nil && m.Music == nil && len(m.Names) == 0 && m.Remotes == nil
 }
 
 // Custom says whether the file has any of the screens that only it can fill.
 func (m Mapping) Custom() bool {
-	return m.Home.set() || m.Security != nil || m.Energy != nil || m.Music != nil
+	return m.Home.set() || m.Security != nil || m.Energy != nil || m.Music != nil || m.Remotes != nil
 }
 
 // hides says whether a house-wide hide rule covers this entity: its id, a glob over ids, or its integration.

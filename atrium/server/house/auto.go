@@ -167,6 +167,9 @@ func AutoMapping(d Dump) Mapping {
 	if mu := x.autoMusic(); len(mu.Speakers) > 0 {
 		m.Music = &mu
 	}
+	if rs := x.autoRemotes(); len(rs) > 0 {
+		m.Remotes = rs
+	}
 	return m
 }
 

@@ -20,7 +20,9 @@ type Local struct {
 	tokens *tokenCheck
 }
 
-func NewLocal(g *Gateway) Local { return Local{g, &tokenCheck{ok: map[string]time.Time{}, failed: map[string][]time.Time{}}} }
+func NewLocal(g *Gateway) Local {
+	return Local{g, &tokenCheck{ok: map[string]time.Time{}, failed: map[string][]time.Time{}}}
+}
 
 // localPath is all the port answers: what the app needs from the add-on when Home Assistant is reached directly.
 func localPath(p string) bool {

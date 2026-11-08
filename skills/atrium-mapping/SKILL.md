@@ -1,6 +1,6 @@
 ---
 name: atrium-mapping
-description: Write or revise atrium.yaml, the Atrium layout file for a Home Assistant — the custom screens (Home readouts, Security, Energy, Music) and the overrides on the automatic rooms (hide, rank, rename, thermostat). Use when setting Atrium up for a house, when a custom screen is empty or wrong, when the rooms need tidying, or when the add-on log reports mapping problems.
+description: Write or revise atrium.yaml, the Atrium layout file for a Home Assistant — the custom screens (Home readouts, Security, Energy, Music, TV remotes) and the overrides on the automatic rooms (hide, rank, rename, thermostat). Use when setting Atrium up for a house, when a custom screen is empty or wrong, when a television's remote lacks a key or an input (an HDMI matrix, a receiver), when the rooms need tidying, or when the add-on log reports mapping problems.
 ---
 
 # Atrium mapping
@@ -11,9 +11,10 @@ device is in the app a moment later, with nothing written anywhere. What it cann
 machine; the Atrium add-on itself sees it as `/config/atrium.yaml`; part of Atrium's backups):
 
 - **The custom screens**, which need judgment: `home` (weather, inside and outside temperature, alarm, people),
-  `security` (cameras, the doorbell, entries, hazards), `energy` (solar, grid, consumers, water) and `music`
-  (the speakers). The add-on guesses each from what Home Assistant has; a section in the file replaces that
-  guess wholesale. Start from the guesses: `atrium_auto` shows them in the file's shape.
+  `security` (cameras, the doorbell, entries, hazards), `energy` (solar, grid, consumers, water), `music`
+  (the speakers) and `remotes` (each television's keys, inputs and buttons). The add-on guesses each from what
+  Home Assistant has; a section in the file replaces that guess wholesale. Start from the guesses: `atrium_auto`
+  shows them in the file's shape.
 - **Overrides** on the automatic rooms, only where they look wrong: hide a room or an entity, rank rooms and
   floors, rename, move a room to a floor, pick the thermostat, borrow an entity, drop an integration.
 
@@ -99,6 +100,22 @@ page or the app for the picture) and add overrides only where they are wrong. Ch
   floor ("Elsewhere"): give them a floor in Home Assistant, or rename `other` to something sensible.
 - **Entries and hazards.** Door, window and gate contacts in `entries`; smoke, gas, CO and leak sensors in
   `hazards`. Drop anything that is a car.
+- **Remotes.** `atrium_auto` lists one per television it found, with its remote and player entities. Check each
+  against the room: is that the television, and the right integration's copy? Then the three things the add-on
+  cannot know, and only where they apply:
+  - **Volume** through a receiver: `volume: media_player.<avr>` when the room's sound goes through one.
+  - **Inputs** that are not the television's own source list: an HDMI matrix, a receiver's inputs, a streamer on
+    HDMI 2. Write them as `inputs:` options, each pointing at what does the switching, with `when:` naming the
+    entity and state that mean it is selected.
+  - **Keys** the integration lacks, or that belong to another device (navigation on the Google TV, volume on the
+    receiver): `keys:` entries, one line each; `none` drops a key that does nothing on this set.
+
+  **Put the logic in Home Assistant.** When choosing an input means several steps (switch the matrix, wake the
+  receiver, pick its HDMI, set the television's source), write a Home Assistant **script** that does them — in
+  Home Assistant's own YAML, where it can be run from the Home Assistant UI and used by automations too — and point
+  the Atrium input or button at the script. You have the tools for that (the Home Assistant config, `ha` and the
+  WebSocket API); the layout file only names the script. A television with nothing special needs no entry at
+  all: a Frame TV, a Google TV or a Roku on its own is complete as guessed.
 
 ## 3. Deliver and verify
 

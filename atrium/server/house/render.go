@@ -504,6 +504,29 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 			h.MusicAssistant = ma
 		}
 	}
+	// Remotes: the file's, else one per television. A television's own media player is not a room tile (shows
+	// keeps those for speakers); the remote stands for it.
+	remotes := m.Remotes
+	if remotes == nil {
+		remotes = x.autoRemotes()
+	}
+	for _, rm := range remotes {
+		if hidden(rm.Remote) || hidden(rm.Player) {
+			continue
+		}
+		r, rp, ok := x.renderRemote(rm, m.Names)
+		problems = append(problems, rp...)
+		if !ok {
+			continue
+		}
+		if c.Entities[r.ID].Name != "" {
+			r.Name = c.Entities[r.ID].Name
+		}
+		h.Remotes = append(h.Remotes, r)
+		if r.Player != "" && h.Names[r.Player] == "" {
+			h.Names[r.Player] = r.Name
+		}
+	}
 	// The owner's renames win over everything.
 	for _, id := range sortedKeys(c.Entities) {
 		if n := c.Entities[id].Name; n != "" && d.States[id] != nil {
