@@ -109,6 +109,10 @@ def fetch(url, token):
     d['devices'] = ws.call('config/device_registry/list')
     d['entities'] = ws.call('config/entity_registry/list')
     d['states'] = ws.call('get_states')
+    try:
+        d['config_entries'] = ws.call('config_entries/get')   # which integrations are loaded; see restored entities below
+    except SystemExit:
+        d['config_entries'] = None   # an older Home Assistant: every integration is taken as loaded
     ws.sock.close()
     return d
 
@@ -124,7 +128,37 @@ ROOM_ORDER = {"light": 0, "switch": 1, "cover": 2, "climate": 3, "fan": 4, "medi
 
 
 class Ent:
-    __slots__ = ('id', 'domain', 'area', 'device', 'platform', 'name', 'cls', 'state', 'attrs')
+    __slots__ = ('id', 'domain', 'area', 'device', 'platform', 'name', 'cls', 'state', 'attrs', 'restored')
+
+
+SETTLE_AFTER = 600   # seconds Home Assistant must have run before a restored entity means its device is gone
+
+
+def running_for(d):
+    """How long Home Assistant has been running, in seconds, read off the dump the way the add-on reads it: at start
+    Home Assistant writes a restored placeholder (restored: true, unavailable) for every registered entity its
+    integrations have not provided yet, so the oldest one still standing dates the start. None left: nothing to
+    settle, counts as settled. Not RUNNING yet: 0."""
+    if (d.get('config') or {}).get('state', 'RUNNING') != 'RUNNING':
+        return 0
+    oldest, restored = None, False
+    for st in d['states']:
+        if (st.get('attributes') or {}).get('restored'):
+            restored = True
+            t = parse_time(st.get('last_changed') or '')
+            if t is not None and (oldest is None or t < oldest):
+                oldest = t
+    if not restored:
+        return SETTLE_AFTER
+    return 0 if oldest is None else max(0.0, time.time() - oldest)   # undated placeholders cannot date the start
+
+
+def parse_time(s):
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
+    except ValueError:
+        return None
 
 
 def domain(eid):
@@ -183,10 +217,29 @@ def build(d):
         e.area = r.get('area_id') or device_area.get(e.device, '')
         e.platform = r.get('platform') or ''
         e.state, e.attrs = st.get('state'), st.get('attributes') or {}
+        e.restored = bool(e.attrs.get('restored'))
         e.name = e.attrs.get('friendly_name') or r.get('name') or r.get('original_name') or pretty(eid)
         e.cls = e.attrs.get('device_class') or r.get('device_class') or r.get('original_device_class') or ''
         ents[eid] = e
     order = sorted(ents.values(), key=lambda e: e.id)
+    # Restored entities, once Home Assistant has run SETTLE_AFTER (the add-on's rule, house/auto.go): a ghost is a
+    # restored entity with a live twin (same domain, same name or another device of the same name): the device came
+    # back under a new id. Only an entity whose integration is loaded can be a ghost (an offline hub's entities are
+    # all restored, and say nothing). Ghosts are left out; other restored entities stay in rooms, but are never a
+    # guess for a slot that takes one entity. Before settling nothing is decided from them.
+    settled = running_for(d) >= SETTLE_AFTER
+    entries = d.get('config_entries')
+    loaded = None if entries is None else {e.get('entry_id') for e in entries if e.get('state') == 'loaded'}
+    entry_of = {e['entity_id']: e.get('config_entry_id') for e in d['entities'] if e.get('entity_id')}
+    may_ghost = lambda e: loaded is None or not entry_of.get(e.id) or entry_of[e.id] in loaded
+    device_name = {dev['id']: (dev.get('name_by_user') or dev.get('name') or '') for dev in d['devices'] if dev.get('id')}
+    live_names = {(e.domain, e.name.lower()) for e in order if not e.restored}
+    live_devices = {(e.domain, device_name.get(e.device, '').lower(), e.device) for e in order if not e.restored and device_name.get(e.device)}
+    other_device_live = lambda e: any(dom == e.domain and name == device_name[e.device].lower() and dev != e.device for dom, name, dev in live_devices)
+    ghosts = {e.id for e in order if settled and e.restored and may_ghost(e) and
+              ((e.domain, e.name.lower()) in live_names or (device_name.get(e.device) and other_device_live(e)))}
+    order = [e for e in order if e.id not in ghosts]
+    pickable = lambda e: not (settled and e.restored)
     by_domain = lambda dom: [e for e in order if e.domain == dom]
 
     out = {'name': (d['config'] or {}).get('location_name') or ''}
@@ -218,7 +271,7 @@ def build(d):
             elif e.domain == 'switch':
                 show = e.platform != 'browser_mod'   # a kiosk's screen switches are not the room's
             elif e.domain == 'climate':
-                if heats_a_room(e):
+                if heats_a_room(e) and pickable(e):
                     climates.append(e.id)
                 continue
             elif e.domain == 'media_player':
@@ -229,11 +282,11 @@ def build(d):
             continue
         ids.sort(key=lambda i: (ROOM_ORDER.get(domain(i), 99), ents[i].name or i))
         temp = a.get('temperature_entity_id')
-        if temp not in ents:
-            temp = next((e.id for e in here if e.domain == 'sensor' and e.cls == 'temperature' and is_room_temperature(e)), '')
+        if temp not in ents or not pickable(ents[temp]):
+            temp = next((e.id for e in here if e.domain == 'sensor' and e.cls == 'temperature' and pickable(e) and is_room_temperature(e)), '')
         hum = a.get('humidity_entity_id')
-        if hum not in ents:
-            hum = next((e.id for e in here if e.domain == 'sensor' and e.cls == 'humidity'), '')
+        if hum not in ents or not pickable(ents[hum]):
+            hum = next((e.id for e in here if e.domain == 'sensor' and e.cls == 'humidity' and pickable(e)), '')
         floor = a.get('floor_id') or ''
         room = {'id': aid, 'name': aname, 'floor': floor if floor in known else 'other',
                 'thermostat': climates[0] if climates else '', 'extra_climate': climates[1:],
@@ -254,16 +307,16 @@ def build(d):
     out['scenes'] = [(e.id, True) for e in by_domain('script')][:24]
 
     # The whole-house readouts.
-    weather = [e.id for e in by_domain('weather')]
-    out['home'] = {'weather': 'weather.forecast_home' if 'weather.forecast_home' in ents else (weather[0] if weather else ''),
-                   'alarm': next((e.id for e in by_domain('alarm_control_panel')), ''),
+    weather = [e.id for e in by_domain('weather') if pickable(e)]
+    out['home'] = {'weather': 'weather.forecast_home' if 'weather.forecast_home' in weather else (weather[0] if weather else ''),
+                   'alarm': next((e.id for e in by_domain('alarm_control_panel') if pickable(e)), ''),
                    'people': [e.id for e in by_domain('person')]}
 
     # Security.
     cams = [e for e in by_domain('camera') if e.platform not in VEHICLES]
     bells, camera_for = [], {}
     for cam in cams:
-        if not cam.device:
+        if not cam.device or not pickable(cam):   # the doorbell is one camera: never a restored one, once settled
             continue
         for e in order:
             if e.device == cam.device and e.domain in ('binary_sensor', 'event') and ('doorbell' in e.id or e.cls == 'doorbell'):
@@ -290,14 +343,22 @@ def build(d):
     def named(lst, words, not_words=()):
         for e in lst:
             n = (e.id + ' ' + e.name).lower()
-            if any(w in n for w in words) and not any(w in n for w in not_words):
+            if pickable(e) and any(w in n for w in words) and not any(w in n for w in not_words):
                 return e.id
         return ''
     solar = named(powers, ["solar", "pv_power", "production"])
-    load = named(powers, ["consumption", "house_power", "home_power", "load_power", "main_panel"], ["solar", "production"])
-    taken = {solar, load}
+    load = named(powers, ["consumption", "house_power", "home_power", "load_power", "main_panel"], ["solar", "production", "grid", "battery"])
+    # Grid and battery powers are signed; a name alone cannot tell the sign, so the draft marks each one "check".
+    grid = named(powers, ["grid_power", "grid power", "meter_power", "import_export", "net_power"], ["solar", "battery"])
+    battery = named(powers, ["battery_power", "battery power", "battery_charge_discharge"], ["solar", "grid"])
+    taken = {solar, load, grid, battery}
     consumers = [p.id for p in powers if p.id not in taken and p.platform not in VEHICLES][:40]
+    levels = [e for e in by_domain('sensor') if e.cls == 'battery' and e.platform not in VEHICLES]
+    same_device = [e for e in levels if battery and e.device and e.device == ents[battery].device]
+    battery_level = (same_device[0].id if same_device else
+                     named(levels, ["home_battery", "powerwall", "storage", "soc", "state_of_charge", "inverter"], ["phone", "watch", "ipad", "tablet", "remote", "lock", "sensor_battery"]))
     out['energy'] = {'solar_power': solar, 'load_power': [load] if load else [],
+                     'grid_power': grid, 'battery_power': battery, 'battery_level': battery_level,
                      'solar_today': named(energies, ["solar", "production"]),
                      'used_today': named(energies, ["consumption", "house", "home", "main_panel"], ["solar", "production"]),
                      'consumers': consumers}
@@ -405,6 +466,16 @@ def emit(out, source):
             p(f"  solar_power: {e['solar_power']}   # check: W, positive when producing")
         if e['load_power']:
             plist(p, 'load_power', e['load_power'], '   # check: W, positive when consuming; several are summed')
+        if e['grid_power']:
+            p(f"  grid_power: {e['grid_power']}   # check: signed, positive importing; if it reads positive while exporting, use {{ entity: ..., invert: true }}")
+        if e['battery_power']:
+            p(f"  battery_power: {e['battery_power']}   # check: signed, positive discharging; if it reads positive while charging, use {{ entity: ..., invert: true }}")
+        if e['battery_level']:
+            p(f"  battery_level: {e['battery_level']}   # check: percent charged")
+        if not e['grid_power'] and not e['battery_power']:
+            p("  # grid_power: sensor.…          # signed, positive importing; { entity: sensor.…, invert: true } flips the sign")
+            p("  # battery_power: sensor.…       # signed, positive discharging")
+            p("  # battery_level: sensor.…       # percent")
         if e['solar_today']:
             p(f"  solar_today: {e['solar_today']}   # check: kWh")
         if e['used_today']:

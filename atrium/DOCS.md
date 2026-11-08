@@ -48,10 +48,24 @@ house with the **atrium-mapping** skill:
 
 - **Recommended:** if you run the Claude Code app in Home Assistant, tell it to run the atrium-mapping skill from
   github.com/cmmichael/atrium-addon. It reads your house, decides the judgment calls (which camera is the doorbell, which
-  sensors are solar and grid, which rooms matter most) and writes the file to Atrium itself, once you list it under **Apps that may write the layout** in Atrium's Configuration (its slug is
-  `d7e97e69_claudecode`; the set-up page shows this). A listed app is trusted by its address on the apps'
-  network, checked with the Supervisor on every request; an app with host networking and `NET_ADMIN` could pose
-  as one, but such an app can already do anything on the machine.
+  sensors are solar and grid, which rooms matter most) and writes the file to Atrium itself, once you list it under **Apps that may write the layout**: on the set-up page, press **Allow an app…**, pick it from the installed apps (or type its slug and check it) and confirm; it applies at once, no restart. The same list is in Atrium's Configuration tab. An app's slug is
+  `<repository-hash>_<name>`, `d7e97e69_claudecode` for the Claude Code app installed from its own repository; the
+  Supervisor shows it in the app's address bar. A listed app is trusted by its IPv4 address on the apps'
+  network, confirmed with the Supervisor on every request (`hassio_api`, at the default role); an app with host
+  networking and `NET_ADMIN` could pose as one, but such an app can already do anything on the machine.
+
+  To check it works, from inside the listed app: `curl -sS -X PUT --data-binary @atrium.yaml
+  http://<atrium-hostname>:8099/atrium/mapping` (the hostname is Atrium's slug with a dash, `df84f1fd-atrium` for the
+  Store install) answers `{"rooms": N, "problems": [...], "path": ...}`. A **403** names its cause in the body (and in
+  Atrium's log), and each has one remedy:
+  - *IPv6 peer*: the request came over IPv6; Atrium knows apps by their IPv4 address only. Atrium's port is IPv4-only
+    so clients fall back by themselves; if one does not, use the IPv4 address.
+  - *no add-on is listed under writers*: add the app's slug under **Apps that may write the layout**.
+  - *`<slug>` does not resolve*: the listed slug is misspelt, or that app is not installed or not started.
+  - *`<slug>` is at `<address>`, not `<peer>`*: the request came from an app that is not the listed one.
+  - *the Supervisor does not confirm it: Supervisor status 403*: Atrium lacks `hassio_api` (an Atrium older than 0.9.1;
+    update it). *Status 404*: the slug is not installed. *is "stopped"*: the app is not running.
+  - *the Supervisor did not answer*: the Supervisor is busy or restarting; try again.
 - **Otherwise:** point your Claude at Atrium. Atrium is an MCP server on your tailnet
   (`https://atrium.<your-tailnet>.ts.net/mcp`): the contract, the skill, your house, a draft and saving are its
   tools, and Tailscale is the sign-in. In Claude Code: `claude mcp add --transport http atrium <that address>`,
@@ -64,6 +78,14 @@ is checked the same, and the page says what the file names that Home Assistant d
 Atrium re-reads the file whenever it changes and reports, in its log and on its set-up page, anything in it that
 Home Assistant does not have. In the app you can still hide, rename, move and reorder rooms and things; those
 preferences are kept separately and survive a new layout.
+
+**Devices that are gone.** Home Assistant keeps an entity registered after its device is removed or renamed, and
+at start writes it an unavailable placeholder (`restored`). Ten minutes after Home Assistant starts, Atrium stops
+choosing such entities by itself: never as the doorbell, a thermostat, the solar sensor or a room's readout, and
+not at all when a live entity of the same name (or on a device of the same name) has taken its place. Rooms
+keep other restored entities, shown unavailable, since a device that is off for the season is still the room's.
+The set-up page lists the entities that are stale (restored, though their integration is loaded) and where to
+delete them in Home Assistant: **Settings → Devices & services → Entities**. Atrium never deletes anything.
 
 ## Televisions
 

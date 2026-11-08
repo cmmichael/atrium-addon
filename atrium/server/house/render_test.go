@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -490,4 +491,187 @@ func names2(rs []Remote) []string {
 		out = append(out, r.Name)
 	}
 	return out
+}
+
+// The energy section takes a battery: grid and battery powers are signed (positive importing, positive
+// discharging), a sensor with the opposite sign says `invert: true`, and house.json carries the ids plus the list
+// of inverted ones; the apps do the arithmetic. The add-on's own guess never fills these keys.
+func TestTheEnergySectionTakesABattery(t *testing.T) {
+	d := smallHome()
+	for id, unit := range map[string]string{"sensor.pv_power": "W", "sensor.house_power": "W", "sensor.grid_power": "W", "sensor.battery_power": "kW", "sensor.battery_soc": "%"} {
+		d.Entities = append(d.Entities, map[string]any{"entity_id": id, "platform": "demo"})
+		d.States[id] = &State{State: "1", Attributes: map[string]any{"unit_of_measurement": unit, "device_class": "power"}}
+	}
+	m := mapped(t, `
+energy:
+  solar_power: sensor.pv_power
+  load_power: [sensor.house_power, {entity: sensor.house_power}]
+  grid_power: {entity: sensor.grid_power, invert: true}
+  battery_power: {entity: sensor.battery_power}
+  battery_level: sensor.battery_soc
+`)
+	h, problems := Render(m, d, Config{})
+	eq(t, "problems", problems, []string(nil))
+	eq(t, "solar", h.Energy.SolarPower, "sensor.pv_power")
+	eq(t, "load", h.Energy.LoadPower, []string{"sensor.house_power"})
+	eq(t, "grid", h.Energy.GridPower, "sensor.grid_power")
+	eq(t, "battery", h.Energy.BatteryPower, "sensor.battery_power")
+	eq(t, "level", h.Energy.BatteryLevel, "sensor.battery_soc")
+	eq(t, "inverted", h.Energy.Inverted, []string{"sensor.grid_power"})
+	data, _ := json.Marshal(h.Energy)
+	for _, key := range []string{`"gridPower":"sensor.grid_power"`, `"batteryPower":"sensor.battery_power"`, `"batteryLevel":"sensor.battery_soc"`, `"inverted":["sensor.grid_power"]`} {
+		if !strings.Contains(string(data), key) {
+			t.Errorf("house.json energy lacks %s: %s", key, data)
+		}
+	}
+	// A battery sensor Home Assistant does not have is dropped and reported like any other; nothing is inverted then.
+	h, problems = Render(mapped(t, "energy:\n  battery_power: {entity: sensor.nope, invert: true}\n"), d, Config{})
+	eq(t, "missing battery", h.Energy.BatteryPower, "")
+	eq(t, "nothing inverted", h.Energy.Inverted, []string(nil))
+	eq(t, "reported", problems, []string{"energy: Home Assistant has no sensor.nope"})
+	// The shapes the file may not take.
+	for _, bad := range []string{
+		"energy:\n  grid_power: {entity: sensor.x, foo: 1}\n",
+		"energy:\n  grid_power: {invert: true}\n",
+		"energy:\n  grid_power: [sensor.x]\n",
+		"energy:\n  battery_power: notanentity\n",
+		"energy:\n  battery_level: notanentity\n",
+		"energy:\n  load_power: [{entity: sensor.x, invert: maybe}]\n",
+	} {
+		if _, err := ParseMapping([]byte(bad)); err == nil {
+			t.Errorf("accepted %q", bad)
+		}
+	}
+	// The guess fills solar and load from names, never the battery or grid keys; and it writes the short form.
+	auto := AutoMapping(d)
+	if auto.Energy == nil || auto.Energy.GridPower.Entity != "" || auto.Energy.BatteryPower.Entity != "" || auto.Energy.BatteryLevel != "" {
+		t.Errorf("the guess filled battery or grid keys: %+v", auto.Energy)
+	}
+	out, _ := yaml.Marshal(auto)
+	if !strings.Contains(string(out), "solar_power: sensor.pv_power\n") || strings.Contains(string(out), "invert") {
+		t.Errorf("atrium_auto's energy: %s", out)
+	}
+	// The file's long form reads back as the long form.
+	out, _ = yaml.Marshal(m)
+	if !strings.Contains(string(out), "grid_power:\n        entity: sensor.grid_power\n        invert: true") && !strings.Contains(string(out), "invert: true") {
+		t.Errorf("marshalled mapping: %s", out)
+	}
+}
+
+// Once Home Assistant has run for ten minutes, a restored entity (registered, not provided by its integration since
+// start) is not the add-on's own pick for a one-entity slot, and one with a live twin of the same name is a ghost that
+// rooms and lists leave out. Before that, nothing changes. The file may still name a restored entity: kept, reported.
+func TestRestoredEntitiesOnceHomeAssistantHasSettled(t *testing.T) {
+	restored := func(d Dump) Dump {
+		d.Entities = append(d.Entities,
+			map[string]any{"entity_id": "light.kitchen_old", "area_id": "kitchen", "platform": "hue", "config_entry_id": "hue-entry"},
+			map[string]any{"entity_id": "light.kitchen_winter_lamp", "area_id": "kitchen", "platform": "shelly", "config_entry_id": "shelly-entry"},
+			map[string]any{"entity_id": "camera.front_old", "platform": "unifiprotect", "device_id": "bell-old", "config_entry_id": "protect-entry"},
+			map[string]any{"entity_id": "camera.garage_doorbell", "platform": "ring"},
+			map[string]any{"entity_id": "sensor.kitchen_old_temperature", "area_id": "kitchen", "platform": "hue", "config_entry_id": "hue-entry"},
+			map[string]any{"entity_id": "sensor.kitchen_temperature", "area_id": "kitchen", "platform": "hue", "config_entry_id": "hue-entry"},
+			map[string]any{"entity_id": "light.kitchen_island_shelly", "area_id": "kitchen", "platform": "shelly", "config_entry_id": "shelly-entry"},
+			map[string]any{"entity_id": "switch.strip_1", "area_id": "kitchen", "device_id": "strip", "platform": "zha"},
+			map[string]any{"entity_id": "switch.strip_3", "area_id": "kitchen", "device_id": "strip", "platform": "zha"},
+		)
+		d.Devices = append(d.Devices, map[string]any{"id": "bell", "name": "Front"}, map[string]any{"id": "bell-old", "name": "Front"}, map[string]any{"id": "strip", "name": "Kitchen Strip"})
+		d.States["light.kitchen_island_shelly"] = &State{State: "unavailable", Attributes: j(`{"friendly_name":"Kitchen Island lights","restored":true}`).(map[string]any)}
+		d.States["switch.strip_1"] = &State{State: "on", Attributes: j(`{"friendly_name":"Kitchen Strip outlet 1"}`).(map[string]any)}
+		d.States["switch.strip_3"] = &State{State: "unavailable", Attributes: j(`{"friendly_name":"Kitchen Strip outlet 3","restored":true}`).(map[string]any)}
+		d.States["light.kitchen_old"] = &State{State: "unavailable", Attributes: j(`{"friendly_name":"Kitchen Main lights","restored":true}`).(map[string]any)}
+		d.States["light.kitchen_winter_lamp"] = &State{State: "unavailable", Attributes: j(`{"friendly_name":"Winter lamp","restored":true}`).(map[string]any)}
+		d.States["camera.front_old"] = &State{State: "unavailable", Attributes: j(`{"friendly_name":"Front - Old channel","restored":true}`).(map[string]any)}
+		d.States["camera.garage_doorbell"] = &State{State: "unavailable", Attributes: j(`{"friendly_name":"Garage doorbell","restored":true}`).(map[string]any)}
+		d.States["sensor.kitchen_old_temperature"] = &State{State: "unavailable", Attributes: j(`{"friendly_name":"Old kitchen temperature","device_class":"temperature","restored":true}`).(map[string]any)}
+		d.States["sensor.kitchen_temperature"] = &State{State: "21.5", Attributes: j(`{"friendly_name":"Kitchen temperature","device_class":"temperature","unit_of_measurement":"°C"}`).(map[string]any)}
+		d.ConfigEntries = list(`[{"entry_id":"hue-entry","state":"loaded"},{"entry_id":"shelly-entry","state":"setup_retry"},{"entry_id":"protect-entry","state":"loaded"}]`)
+		d.Running = true
+		return d
+	}
+	room := func(h House, id string) Room {
+		for _, r := range h.Rooms {
+			if r.ID == id {
+				return r
+			}
+		}
+		t.Fatalf("no room %s", id)
+		return Room{}
+	}
+	mapping := mapped(t, "version: 2\nrooms:\n  - id: bed\n    entities: [light.kitchen_winter_lamp]\n")
+
+	// Just started: restored entities are like any other, and nothing is listed as stale.
+	young := restored(smallHome())
+	young.RunningFor = time.Minute
+	if young.Settled() {
+		t.Fatal("a minute in is not settled")
+	}
+	h, problems := Render(mapping, young, Config{})
+	if k := room(h, "kitchen"); !contains(k.Entities, "light.kitchen_old") || !contains(k.Entities, "light.kitchen_winter_lamp") {
+		t.Errorf("before settling the kitchen keeps every entity: %v", k.Entities)
+	}
+	if !reflect.DeepEqual(h.Security.Doorbells, []string{"camera.front", "camera.garage_doorbell"}) || !contains(h.Security.Cameras, "camera.front_old") {
+		t.Errorf("before settling the restored cameras count: doorbells %v cameras %v", h.Security.Doorbells, h.Security.Cameras)
+	}
+	if len(problems) != 0 {
+		t.Errorf("before settling nothing is reported: %v", problems)
+	}
+	if s := Stale(young); len(s) != 0 {
+		t.Errorf("before settling nothing is stale: %v", s)
+	}
+
+	// Settled: ghosts go, other restored entities stay but are never the add-on's pick, the file's line is reported.
+	settled := restored(smallHome())
+	settled.RunningFor = 11 * time.Minute
+	if !settled.Settled() {
+		t.Fatal("eleven minutes in is settled")
+	}
+	h, problems = Render(mapping, settled, Config{})
+	k := room(h, "kitchen")
+	if contains(k.Entities, "light.kitchen_old") {
+		t.Errorf("light.kitchen_old has a live twin (Kitchen Main lights) and is a ghost: %v", k.Entities)
+	}
+	if !contains(k.Entities, "light.kitchen_island_shelly") {
+		t.Errorf("a restored light whose integration is still retrying is offline, not a ghost, whatever its name: %v", k.Entities)
+	}
+	if !contains(k.Entities, "switch.strip_3") {
+		t.Errorf("a dead outlet on a device whose other outlets are live is not a ghost (no other device took its place): %v", k.Entities)
+	}
+	if k.Temperature != "sensor.kitchen_temperature" {
+		t.Errorf("the room's temperature is the live sensor, not the restored one: %q", k.Temperature)
+	}
+	if !contains(room(h, "bed").Entities, "light.kitchen_winter_lamp") {
+		t.Errorf("the file's restored entity is kept: %v", room(h, "bed").Entities)
+	}
+	if !reflect.DeepEqual(problems, []string{"room bed: light.kitchen_winter_lamp is restored: Home Assistant has not seen it since it started, so it shows as unavailable"}) {
+		t.Errorf("the file's restored entity is reported, not refused: %v", problems)
+	}
+	if !reflect.DeepEqual(h.Security.Doorbells, []string{"camera.front"}) {
+		t.Errorf("the doorbell is never a restored camera once settled: %v", h.Security.Doorbells)
+	}
+	if contains(h.Security.Cameras, "camera.front_old") {
+		t.Errorf("camera.front_old is on a device named like the live Front camera's and is a ghost: %v", h.Security.Cameras)
+	}
+	if !contains(h.Security.Cameras, "camera.garage_doorbell") {
+		t.Errorf("a restored camera with no twin stays listed (shown unavailable): %v", h.Security.Cameras)
+	}
+	if !contains(k.Entities, "light.kitchen_winter_lamp") && !contains(room(h, "bed").Entities, "light.kitchen_winter_lamp") {
+		t.Error("a restored light without a twin is still the room's")
+	}
+	// Stale: restored, and its integration is loaded, so it is not coming back. Not the one whose integration is still retrying.
+	stale := Stale(settled)
+	ids := []string{}
+	for _, s := range stale {
+		ids = append(ids, s.ID)
+	}
+	if !reflect.DeepEqual(ids, []string{"camera.front_old", "light.kitchen_old", "sensor.kitchen_old_temperature"}) {
+		t.Errorf("stale: %v", ids)
+	}
+	if stale[1].Name != "Kitchen Main lights" || stale[1].Platform != "hue" {
+		t.Errorf("stale entries carry the name and platform: %+v", stale[1])
+	}
+	// Not running (starting up, or the dump could not tell): never settled, whatever the duration says.
+	settled.Running = false
+	if settled.Settled() || len(Stale(settled)) != 0 {
+		t.Error("not running is not settled")
+	}
 }

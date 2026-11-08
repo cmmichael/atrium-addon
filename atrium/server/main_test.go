@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cmmichael/atrium/addon/atrium/server/house"
 
 	"github.com/coder/websocket"
 )
@@ -57,6 +61,7 @@ var tinyHouse = map[string]string{
 	"config/device_registry/list": `[]`,
 	"get_states":                  `[{"entity_id":"light.den_lamp","state":"on","attributes":{"friendly_name":"Den Lamp"}},{"entity_id":"light.den_settings","state":"off","attributes":{}}]`,
 	"get_config":                  `{"location_name":"Test Home"}`,
+	"config_entries/get":          `[]`,
 	"config/auth/list":            `[{"id":"u1","name":"Someone","is_owner":false,"group_ids":["system-users"]},{"id":"u2","name":"The admin","is_owner":false,"group_ids":["system-admin"]},{"id":"u3","name":"The owner","is_owner":true,"group_ids":["system-admin"]}]`,
 }
 
@@ -609,20 +614,26 @@ func TestTheMCPServerMakesTheLayout(t *testing.T) {
 }
 
 // An add-on the owner lists under writers (the Claude Code add-on) writes the layout from inside Home Assistant:
-// known by its address on the Supervisor's network, no token, no file access to anything.
+// known by its address on the Supervisor's network, no token, no file access to anything. Slugs here are examples:
+// a slug is <repository-hash>_<name>, and nothing in the add-on knows any particular one.
 func TestAListedAddonWritesTheLayoutFromInsideHomeAssistant(t *testing.T) {
 	ha := fakeHA(t)
 	defer ha.Close()
 	g := gateway(ha, Identity{})
 	g.Opts.Writers = []string{"d7e97e69_claudecode"}
-	g.ResolveAddon = func(slug string) []string {
+	g.ResolveAddon = func(slug string) ([]string, error) {
 		if slug == "d7e97e69_claudecode" {
-			return []string{"fd0c:ac1e:2100::3", "172.30.33.3"}
+			return []string{"fd0c:ac1e:2100::3", "172.30.33.3"}, nil
 		}
-		return nil
+		return nil, errors.New("no such host")
 	}
 	running := true
-	g.CheckAddon = func(slug, ip string) bool { return running && slug == "d7e97e69_claudecode" && ip == "172.30.33.3" }
+	g.CheckAddon = func(slug, ip string) error {
+		if running && slug == "d7e97e69_claudecode" && ip == "172.30.33.3" {
+			return nil
+		}
+		return errors.New("the Supervisor says it is stopped")
+	}
 	g.MappingPath = filepath.Join(t.TempDir(), "atrium.yaml")
 	in := Ingress{g}
 	from := func(peer, method, path, body string, header ...string) *httptest.ResponseRecorder {
@@ -636,8 +647,8 @@ func TestAListedAddonWritesTheLayoutFromInsideHomeAssistant(t *testing.T) {
 		in.ServeHTTP(w, r)
 		return w
 	}
-	if w := from("172.30.33.9", "PUT", "/atrium/mapping", "rooms: []\n"); w.Code != 403 {
-		t.Errorf("an unlisted container wrote the layout: %d", w.Code)
+	if w := from("172.30.33.9", "PUT", "/atrium/mapping", "rooms: []\n"); w.Code != 403 || !strings.Contains(w.Body.String(), "d7e97e69_claudecode is at 172.30.33.3, not 172.30.33.9") {
+		t.Errorf("an unlisted container: %d %s", w.Code, w.Body.String())
 	}
 	if w := from("172.30.33.3", "PUT", "/atrium/mapping", "rooms: []\n", "Origin", "http://evil.example"); w.Code != 403 {
 		t.Errorf("a web page from the listed container's address wrote the layout: %d", w.Code)
@@ -659,19 +670,116 @@ func TestAListedAddonWritesTheLayoutFromInsideHomeAssistant(t *testing.T) {
 	if w := from("172.30.33.3", "GET", "/api/states", ""); w.Code != 403 {
 		t.Errorf("the writer reached the API: %d", w.Code)
 	}
-	// An address the DNS still has but the Supervisor says is not the running add-on (reused after a restart).
+	// An address the DNS still has but the Supervisor says is not the running add-on (reused after a restart): the
+	// refusal carries the Supervisor's word.
 	running = false
-	if w := from("172.30.33.3", "PUT", "/atrium/mapping", "rooms: []\n"); w.Code != 403 {
-		t.Errorf("a stale address wrote the layout: %d", w.Code)
+	if w := from("172.30.33.3", "PUT", "/atrium/mapping", "rooms: []\n"); w.Code != 403 || !strings.Contains(w.Body.String(), "the Supervisor does not confirm it: the Supervisor says it is stopped") {
+		t.Errorf("a stale address: %d %s", w.Code, w.Body.String())
 	}
 	running = true
-	// IPv6 peers are not matched (the Supervisor reports one IPv4 address).
-	r := httptest.NewRequest("PUT", "/atrium/mapping", strings.NewReader("rooms: []\n"))
-	r.RemoteAddr = "[fd0c:ac1e:2100::3]:40000"
-	w = httptest.NewRecorder()
-	in.ServeHTTP(w, r)
-	if w.Code != 403 {
-		t.Errorf("an IPv6 peer wrote the layout: %d", w.Code)
+	// Every refusal names its cause, so the skill can tell the owner what to do.
+	for _, c := range []struct{ peer, want string }{
+		{"[fd0c:ac1e:2100::3]", "IPv6 peer fd0c:ac1e:2100::3"}, // the listener is IPv4-only; should one get through, DNS alone is not enough
+		{"172.30.33.9", "is at 172.30.33.3, not 172.30.33.9"},
+	} {
+		r := httptest.NewRequest("PUT", "/atrium/mapping", strings.NewReader("rooms: []\n"))
+		r.RemoteAddr = c.peer + ":40000"
+		w := httptest.NewRecorder()
+		in.ServeHTTP(w, r)
+		if w.Code != 403 || !strings.HasPrefix(w.Body.String(), "refused: ") || !strings.Contains(w.Body.String(), c.want) {
+			t.Errorf("from %s: %d %q, want %q", c.peer, w.Code, w.Body.String(), c.want)
+		}
+	}
+	g.Opts.Writers = []string{"abcdef01_other"}
+	if w := from("172.30.33.3", "PUT", "/atrium/mapping", "rooms: []\n"); w.Code != 403 || !strings.Contains(w.Body.String(), "abcdef01_other does not resolve") {
+		t.Errorf("a slug that does not resolve: %d %s", w.Code, w.Body.String())
+	}
+	g.Opts.Writers = nil
+	if w := from("172.30.33.3", "PUT", "/atrium/mapping", "rooms: []\n"); w.Code != 403 || !strings.Contains(w.Body.String(), "no add-on is listed under writers") {
+		t.Errorf("nothing listed: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// The Supervisor is asked, on every request, whether the listed add-on runs at the peer's address: GET
+// /addons/<slug>/info (hassio_api). Only a 200 that says started at that address lets the request through; a 403
+// (no hassio_api), a timeout and another address each refuse, naming the cause.
+func TestTheSupervisorConfirmsAWritersAddress(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	var status int
+	var ip, state string
+	var hang bool
+	sup := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/addons/d7e97e69_claudecode/info" || r.Header.Get("Authorization") != "Bearer addon-token" {
+			t.Errorf("unexpected Supervisor request %s %s (%s)", r.Method, r.URL.Path, r.Header.Get("Authorization"))
+		}
+		if hang {
+			select {
+			case <-r.Context().Done():
+			case <-time.After(2 * time.Second):
+			}
+			return
+		}
+		w.WriteHeader(status)
+		if status == 200 {
+			fmt.Fprintf(w, `{"result":"ok","data":{"slug":"d7e97e69_claudecode","state":%q,"ip_address":%q}}`, state, ip)
+		} else {
+			fmt.Fprint(w, `{"result":"error","message":"forbidden"}`)
+		}
+	}))
+	defer sup.Close()
+	g := gateway(ha, Identity{})
+	g.Opts.Writers = []string{"d7e97e69_claudecode"}
+	g.SupervisorURL, g.SupervisorTimeout = sup.URL, 200*time.Millisecond
+	g.ResolveAddon = func(string) ([]string, error) { return []string{"172.30.33.2"}, nil }
+	g.MappingPath = filepath.Join(t.TempDir(), "atrium.yaml")
+	put := func() *httptest.ResponseRecorder {
+		r := httptest.NewRequest("PUT", "/atrium/mapping", strings.NewReader("rooms: []\n"))
+		r.RemoteAddr = "172.30.33.2:40000"
+		w := httptest.NewRecorder()
+		Ingress{g}.ServeHTTP(w, r)
+		return w
+	}
+	status, ip, state = 200, "172.30.33.2", "started"
+	if w := put(); w.Code != 200 {
+		t.Errorf("IPv4 success: %d %s", w.Code, w.Body.String())
+	}
+	status = 403 // hassio_api missing from config.yaml
+	if w := put(); w.Code != 403 || !strings.Contains(w.Body.String(), "Supervisor status 403") {
+		t.Errorf("403 from the Supervisor: %d %s", w.Code, w.Body.String())
+	}
+	status, ip = 200, "172.30.33.7" // the address is another add-on's now
+	if w := put(); w.Code != 403 || !strings.Contains(w.Body.String(), `is at "172.30.33.7", not 172.30.33.2`) {
+		t.Errorf("another address: %d %s", w.Code, w.Body.String())
+	}
+	ip, state = "172.30.33.2", "stopped"
+	if w := put(); w.Code != 403 || !strings.Contains(w.Body.String(), `is "stopped", not started`) {
+		t.Errorf("stopped: %d %s", w.Code, w.Body.String())
+	}
+	hang = true
+	if w := put(); w.Code != 403 || !strings.Contains(w.Body.String(), "did not answer") {
+		t.Errorf("timeout: %d %s", w.Code, w.Body.String())
+	}
+	hang = false
+	status = 404
+	if w := put(); w.Code != 403 || !strings.Contains(w.Body.String(), "Supervisor status 404") {
+		t.Errorf("404 from the Supervisor: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// The ingress port is IPv4-only, so a listed add-on whose name also resolves to IPv6 reaches it over IPv4 (its
+// client falls back), the only address the Supervisor can confirm.
+func TestTheIngressListenerIsIPv4Only(t *testing.T) {
+	ln, err := ingressListener("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if ln.Addr().Network() != "tcp" || ln.Addr().(*net.TCPAddr).IP.To4() == nil {
+		t.Errorf("listener: %v", ln.Addr())
+	}
+	if _, err := ingressListener("[::1]:0"); err == nil {
+		t.Error("an IPv6 listener was made")
 	}
 }
 
@@ -716,5 +824,67 @@ func TestTheDefaultLayoutCanBeSeenBesideTheFile(t *testing.T) {
 	}
 	if _, h := get(t, g, "/atrium/house?layout=default"); h["layout"] != "default" || h["rooms"].([]any)[0].(map[string]any)["name"] != "Den" {
 		t.Errorf("the default layout: %v", h)
+	}
+}
+
+// The dump reads Home Assistant's running state, the config entries and each state's last change, and dates the
+// start by the oldest restored placeholder; the set-up page lists what is stale once Home Assistant has settled.
+func TestTheDumpDatesHomeAssistantsStartAndTheSetupPageListsStaleEntities(t *testing.T) {
+	started := time.Now().Add(-20 * time.Minute).UTC().Format(time.RFC3339Nano)
+	saved := map[string]string{}
+	for _, k := range []string{"get_states", "get_config", "config/entity_registry/list", "config_entries/get"} {
+		saved[k] = tinyHouse[k]
+	}
+	defer func() {
+		for k, v := range saved {
+			tinyHouse[k] = v
+		}
+	}()
+	tinyHouse["get_config"] = `{"location_name":"Test Home","state":"RUNNING"}`
+	tinyHouse["config_entries/get"] = `[{"entry_id":"demo-entry","domain":"demo","state":"loaded"},{"entry_id":"zb-entry","domain":"zha","state":"setup_retry"}]`
+	tinyHouse["config/entity_registry/list"] = `[{"entity_id":"light.den_lamp","area_id":"den","platform":"demo","config_entry_id":"demo-entry"},
+		{"entity_id":"light.den_old_lamp","area_id":"den","platform":"demo","config_entry_id":"demo-entry"},
+		{"entity_id":"light.den_bulb","area_id":"den","platform":"zha","config_entry_id":"zb-entry"}]`
+	tinyHouse["get_states"] = `[{"entity_id":"light.den_lamp","state":"on","attributes":{"friendly_name":"Den Lamp"},"last_changed":"` + started + `"},
+		{"entity_id":"light.den_old_lamp","state":"unavailable","attributes":{"friendly_name":"Den Lamp","restored":true},"last_changed":"` + started + `"},
+		{"entity_id":"light.den_bulb","state":"unavailable","attributes":{"friendly_name":"Den Bulb","restored":true},"last_changed":"` + started + `"}]`
+	ha := fakeHA(t)
+	defer ha.Close()
+	g := gateway(ha, Identity{Login: "owner@example.com"})
+	d, err := g.dump(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.Running || d.RunningFor < 19*time.Minute || d.RunningFor > 21*time.Minute || !d.Settled() {
+		t.Errorf("running %v for %v", d.Running, d.RunningFor)
+	}
+	if len(d.ConfigEntries) != 2 || d.States["light.den_lamp"].LastChanged.IsZero() {
+		t.Errorf("config entries %d, last changed %v", len(d.ConfigEntries), d.States["light.den_lamp"].LastChanged)
+	}
+	// A house with no restored entity has nothing to settle: it counts as settled at once.
+	if rf := runningFor(house.Dump{Running: true, States: map[string]*house.State{"light.a": {State: "on"}}}, time.Now()); rf != house.SettleAfter {
+		t.Errorf("no restored entities: %v", rf)
+	}
+	if rf := runningFor(house.Dump{Running: false}, time.Now()); rf != 0 {
+		t.Errorf("not running: %v", rf)
+	}
+	// The room shows the live lamp and the bulb whose integration is still retrying; the old lamp, a ghost, is gone;
+	// the set-up page lists only the old lamp as stale (its integration is loaded, so it is not coming back).
+	if _, h := get(t, g, "/atrium/house"); fmt.Sprint(h["rooms"].([]any)[0].(map[string]any)["entities"]) != "[light.den_bulb light.den_lamp]" {
+		t.Errorf("room: %v", h["rooms"].([]any)[0].(map[string]any)["entities"])
+	}
+	_, setup := get(t, g, "/atrium/setup")
+	stale, _ := setup["layout"].(map[string]any)["stale"].([]any)
+	if len(stale) != 1 || stale[0].(map[string]any)["id"] != "light.den_old_lamp" || stale[0].(map[string]any)["name"] != "Den Lamp" {
+		t.Errorf("stale: %v", stale)
+	}
+	// Still starting up: nothing is a ghost and nothing is stale.
+	tinyHouse["get_config"] = `{"location_name":"Test Home","state":"STARTING"}`
+	g = gateway(ha, Identity{Login: "owner@example.com"})
+	if _, h := get(t, g, "/atrium/house"); fmt.Sprint(h["rooms"].([]any)[0].(map[string]any)["entities"]) != "[light.den_bulb light.den_lamp light.den_old_lamp]" {
+		t.Errorf("room while starting: %v", h["rooms"].([]any)[0].(map[string]any)["entities"])
+	}
+	if _, setup := get(t, g, "/atrium/setup"); setup["layout"].(map[string]any)["stale"] != nil {
+		t.Errorf("stale while starting: %v", setup["layout"].(map[string]any)["stale"])
 	}
 }

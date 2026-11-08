@@ -4,6 +4,11 @@
 // The JSON field names are the contract with the apps: the iOS app decodes this with its own House type.
 package house
 
+import (
+	"sort"
+	"time"
+)
+
 // Floor is one level of the house.
 type Floor struct {
 	ID   string `json:"id"`
@@ -110,15 +115,22 @@ type RemoteButton struct {
 	Action Action `json:"action"`
 }
 
-// Energy is what the Energy screen shows.
+// Energy is what the Energy screen shows. Powers are W or kW by the sensor's unit. gridPower is signed, positive
+// when importing; batteryPower signed, positive when discharging (Home Assistant's energy-dashboard convention);
+// the apps negate any sensor in inverted. All optional; the apps derive one missing term of
+// solar + battery + grid = load, and treat a house without batteryPower and batteryLevel as having no battery.
 type Energy struct {
-	SolarPower string   `json:"solarPower,omitempty"`
-	LoadPower  []string `json:"loadPower"`
-	SolarToday string   `json:"solarToday,omitempty"`
-	UsedToday  string   `json:"usedToday,omitempty"`
-	Consumers  []string `json:"consumers"`
-	WaterFlow  string   `json:"waterFlow,omitempty"`
-	WaterToday string   `json:"waterToday,omitempty"`
+	SolarPower   string   `json:"solarPower,omitempty"`
+	LoadPower    []string `json:"loadPower"`
+	GridPower    string   `json:"gridPower,omitempty"`
+	BatteryPower string   `json:"batteryPower,omitempty"`
+	BatteryLevel string   `json:"batteryLevel,omitempty"` // percent
+	Inverted     []string `json:"inverted,omitempty"`     // power sensors whose sign is the opposite of the convention
+	SolarToday   string   `json:"solarToday,omitempty"`
+	UsedToday    string   `json:"usedToday,omitempty"`
+	Consumers    []string `json:"consumers"`
+	WaterFlow    string   `json:"waterFlow,omitempty"`
+	WaterToday   string   `json:"waterToday,omitempty"`
 }
 
 // House is the layout.
@@ -156,8 +168,20 @@ func newHouse(name string) House {
 
 // State is one entity's state as Home Assistant reports it.
 type State struct {
-	State      string         `json:"state"`
-	Attributes map[string]any `json:"attributes"`
+	State       string         `json:"state"`
+	Attributes  map[string]any `json:"attributes"`
+	LastChanged time.Time      `json:"-"` // when the state last changed; zero when not known
+}
+
+// restored says whether this is a placeholder Home Assistant wrote at start for a registered entity its
+// integration has not provided since (`restored: true`, state unavailable): the device is gone, or its
+// integration is still loading.
+func (s *State) restored() bool {
+	if s == nil {
+		return false
+	}
+	v, _ := s.Attributes["restored"].(bool)
+	return v
 }
 
 func (s *State) str(key string) string {
@@ -186,4 +210,60 @@ type Dump struct {
 	States   map[string]*State
 	// camera id → how it streams ("hls", "web_rtc"), from camera/capabilities. Missing: not asked (older dump).
 	CameraStreams map[string][]string
+	// config_entries/get: each integration's entry and whether it is loaded. Missing: not asked (older dump).
+	ConfigEntries []map[string]any
+	// Home Assistant's state from get_config ("RUNNING" once started up) and how long it has been running.
+	// Integrations load in the first minutes, so what is restored then means nothing yet; see Settled.
+	Running    bool
+	RunningFor time.Duration
+}
+
+// SettleAfter is how long after Home Assistant starts its restored entities are taken to mean something: an
+// integration that has not provided an entity by then is not about to.
+const SettleAfter = 10 * time.Minute
+
+// Settled says whether a restored entity may be read as gone: Home Assistant has been running for SettleAfter.
+// Before that, restored entities are treated like any other and nothing is decided from them.
+func (d Dump) Settled() bool { return d.Running && d.RunningFor >= SettleAfter }
+
+// loadedEntries is the config entries that are loaded, by id; nil when the dump did not ask (older dump).
+func (d Dump) loadedEntries() map[string]bool {
+	if d.ConfigEntries == nil {
+		return nil
+	}
+	loaded := map[string]bool{}
+	for _, e := range d.ConfigEntries {
+		if id := str(e["entry_id"]); id != "" && str(e["state"]) == "loaded" {
+			loaded[id] = true
+		}
+	}
+	return loaded
+}
+
+// StaleEntity is a registered entity whose integration is loaded and yet has not provided it since Home Assistant
+// started: left behind by a device that was removed or renamed. Atrium only lists them; deleting is the owner's.
+type StaleEntity struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Platform string `json:"platform,omitempty"`
+}
+
+// Stale lists the stale entities, by id, once Home Assistant has settled; nothing before.
+func Stale(d Dump) []StaleEntity {
+	out := []StaleEntity{}
+	if !d.Settled() || d.ConfigEntries == nil {
+		return out
+	}
+	loaded := d.loadedEntries()
+	for _, e := range d.Entities {
+		id := str(e["entity_id"])
+		st := d.States[id]
+		if id == "" || e["disabled_by"] != nil || !st.restored() || !loaded[str(e["config_entry_id"])] {
+			continue
+		}
+		name := firstOf(st.str("friendly_name"), str(e["name"]), str(e["original_name"]), pretty(id))
+		out = append(out, StaleEntity{ID: id, Name: name, Platform: str(e["platform"])})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
 }

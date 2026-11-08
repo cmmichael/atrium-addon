@@ -302,13 +302,73 @@ type DoorMapping struct {
 }
 
 type EnergyMapping struct {
-	SolarPower string   `yaml:"solar_power,omitempty"`
-	LoadPower  []string `yaml:"load_power,omitempty"`
-	SolarToday string   `yaml:"solar_today,omitempty"`
-	UsedToday  string   `yaml:"used_today,omitempty"`
-	Consumers  []string `yaml:"consumers,omitempty"`
-	WaterFlow  string   `yaml:"water_flow,omitempty"`
-	WaterToday string   `yaml:"water_today,omitempty"`
+	SolarPower PowerRef   `yaml:"solar_power,omitempty"`
+	LoadPower  []PowerRef `yaml:"load_power,omitempty"`
+	// Signed, in Home Assistant's energy-dashboard convention: grid positive when importing, battery positive when
+	// discharging. Optional; when exactly one of solar, load, battery and grid is missing the apps derive it from
+	// solar + battery + grid = load. A house without battery_power (or battery_level) has no battery.
+	GridPower    PowerRef `yaml:"grid_power,omitempty"`
+	BatteryPower PowerRef `yaml:"battery_power,omitempty"`
+	BatteryLevel string   `yaml:"battery_level,omitempty"` // percent
+	SolarToday   string   `yaml:"solar_today,omitempty"`
+	UsedToday    string   `yaml:"used_today,omitempty"`
+	Consumers    []string `yaml:"consumers,omitempty"`
+	WaterFlow    string   `yaml:"water_flow,omitempty"`
+	WaterToday   string   `yaml:"water_today,omitempty"`
+}
+
+// PowerRef is a power sensor in the file: an entity id, or `{entity: sensor.x, invert: true}` for a sensor whose
+// sign is the opposite of the convention (a grid sensor positive when exporting, say). The apps negate it.
+type PowerRef struct {
+	Entity string
+	Invert bool
+}
+
+func (p *PowerRef) UnmarshalYAML(n *yaml.Node) error {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		return n.Decode(&p.Entity)
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			key, val := n.Content[i].Value, n.Content[i+1]
+			switch key {
+			case "entity":
+				if err := val.Decode(&p.Entity); err != nil {
+					return err
+				}
+			case "invert":
+				if err := val.Decode(&p.Invert); err != nil {
+					return fmt.Errorf("invert: %q is not true/false", val.Value)
+				}
+			default:
+				return fmt.Errorf("a power sensor takes entity and invert, not %q", key)
+			}
+		}
+		if p.Entity == "" {
+			return errors.New("a power sensor given as {entity: …, invert: …} needs its entity")
+		}
+		return nil
+	default:
+		return errors.New("a power sensor is an entity id, or {entity: sensor.x, invert: true}")
+	}
+}
+
+// MarshalYAML writes the short form when the sign is not inverted (atrium_auto never inverts).
+func (p PowerRef) MarshalYAML() (any, error) {
+	if !p.Invert {
+		return p.Entity, nil
+	}
+	return map[string]any{"entity": p.Entity, "invert": true}, nil
+}
+
+func (p PowerRef) IsZero() bool { return p.Entity == "" }
+
+// powerRefs is the energy section's power sensors, for checks that run over all of them.
+func (e *EnergyMapping) powerRefs() []PowerRef {
+	if e == nil {
+		return nil
+	}
+	return append([]PowerRef{e.SolarPower, e.GridPower, e.BatteryPower}, e.LoadPower...)
 }
 
 type MusicMapping struct {
@@ -405,6 +465,16 @@ func ParseMapping(data []byte) (Mapping, error) {
 	for id := range m.Names {
 		if domain(id) == "" {
 			return m, fmt.Errorf("names: %q is not an entity id", id)
+		}
+	}
+	if m.Energy != nil {
+		for _, ref := range m.Energy.powerRefs() {
+			if ref.Entity != "" && domain(ref.Entity) == "" {
+				return m, fmt.Errorf("energy: %q is not an entity id", ref.Entity)
+			}
+		}
+		if id := m.Energy.BatteryLevel; id != "" && domain(id) == "" {
+			return m, fmt.Errorf("energy: battery_level %q is not an entity id", id)
 		}
 	}
 	return m, nil

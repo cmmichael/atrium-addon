@@ -78,7 +78,7 @@ func (g *Gateway) dump(ctx context.Context) (house.Dump, error) {
 	if ok, err := read(); err != nil || ok["type"] != "auth_ok" {
 		return house.Dump{}, fmt.Errorf("Home Assistant refused the add-on's token: %v %v", ok["message"], err)
 	}
-	kinds := []string{"config/area_registry/list", "config/floor_registry/list", "config/entity_registry/list", "config/device_registry/list", "get_states", "get_config"}
+	kinds := []string{"config/area_registry/list", "config/floor_registry/list", "config/entity_registry/list", "config/device_registry/list", "get_states", "get_config", "config_entries/get"}
 	for i, kind := range kinds {
 		if err := write(map[string]any{"id": i + 1, "type": kind}); err != nil {
 			return house.Dump{}, err
@@ -95,23 +95,37 @@ func (g *Gateway) dump(ctx context.Context) (house.Dump, error) {
 			continue
 		}
 		if ok, _ := m["success"].(bool); !ok {
+			if kinds[int(id)-1] == "config_entries/get" { // only the stale list needs it; a Home Assistant without it still has a house
+				results[int(id)] = nil
+				continue
+			}
 			return house.Dump{}, fmt.Errorf("%s: %v", kinds[int(id)-1], m["error"])
 		}
 		results[int(id)] = m["result"]
 	}
 	d := house.Dump{States: map[string]*house.State{}}
 	d.Areas, d.Floors, d.Entities, d.Devices = objects(results[1]), objects(results[2]), objects(results[3]), objects(results[4])
+	if results[7] != nil {
+		d.ConfigEntries = objects(results[7])
+	}
 	for _, s := range objects(results[5]) {
 		id, _ := s["entity_id"].(string)
 		state, _ := s["state"].(string)
 		attrs, _ := s["attributes"].(map[string]any)
 		if id != "" {
-			d.States[id] = &house.State{State: state, Attributes: attrs}
+			st := &house.State{State: state, Attributes: attrs}
+			if lc, _ := s["last_changed"].(string); lc != "" {
+				st.LastChanged, _ = time.Parse(time.RFC3339Nano, lc)
+			}
+			d.States[id] = st
 		}
 	}
 	if cfg, _ := results[6].(map[string]any); cfg != nil {
 		d.Name, _ = cfg["location_name"].(string)
+		state, _ := cfg["state"].(string)
+		d.Running = state == "RUNNING"
 	}
+	d.RunningFor = runningFor(d, time.Now())
 	// How each camera streams (HLS through the API, or WebRTC only): the apps choose the player by it, and a
 	// WebRTC-only camera (Nest) has no still image, only a placeholder.
 	d.CameraStreams = map[string][]string{}
@@ -144,6 +158,33 @@ func (g *Gateway) dump(ctx context.Context) (house.Dump, error) {
 		}
 	}
 	return d, nil
+}
+
+// runningFor is how long Home Assistant has been running, read off the dump: at start Home Assistant writes a
+// restored placeholder for every registered entity its integrations have not provided yet, so the oldest of those
+// still standing dates the start. With none left there is nothing a settling time would decide, and the house
+// counts as settled. Restored placeholders that carry no readable time cannot date the start: not settled.
+func runningFor(d house.Dump, now time.Time) time.Duration {
+	if !d.Running {
+		return 0
+	}
+	var oldest time.Time
+	restored := false
+	for _, st := range d.States {
+		if r, _ := st.Attributes["restored"].(bool); r {
+			restored = true
+			if !st.LastChanged.IsZero() && (oldest.IsZero() || st.LastChanged.Before(oldest)) {
+				oldest = st.LastChanged
+			}
+		}
+	}
+	switch {
+	case !restored:
+		return house.SettleAfter
+	case oldest.IsZero():
+		return 0
+	}
+	return now.Sub(oldest)
 }
 
 func strs(v any) []string {
@@ -206,9 +247,10 @@ func (g *Gateway) houseJSON(ctx context.Context) (built, error) {
 		}
 		h, problems := house.Render(mapping, d, cfg)
 		h.BuiltAt = time.Now().UTC().Format(time.RFC3339)
+		stale := house.Stale(d)
 		g.mu.Lock()
 		changed := !g.rendered || strings.Join(problems, "\n") != strings.Join(g.problems, "\n") || len(h.Rooms) != g.rooms
-		g.problems, g.rendered, g.rooms = problems, true, len(h.Rooms)
+		g.problems, g.rendered, g.rooms, g.stale = problems, true, len(h.Rooms), stale
 		g.mu.Unlock()
 		if changed {
 			for _, p := range problems {

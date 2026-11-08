@@ -51,10 +51,44 @@ type index struct {
 	deviceArea map[string]string
 	deviceName map[string]string
 	registry   map[string]map[string]any
+	// Restored entities, once Home Assistant has settled (see Dump.Settled). A ghost is a restored entity with a
+	// live twin: another entity of its domain, not restored, with the same name or on a device of the same name;
+	// the device came back under a new id and the old entity was left behind. Only an entity whose integration is
+	// loaded can be a ghost: while a hub is offline, every one of its entities is restored, and a live light of the
+	// same name elsewhere says nothing about them. Ghosts are left out of what the add-on decides by itself; other
+	// restored entities stay (a device that is off for the winter is still the room's) but are never the add-on's
+	// own pick for a slot that takes one entity.
+	settled bool
+	ghost   map[string]bool
+}
+
+// pickable says whether the add-on may choose this entity by itself for a slot that takes one (the doorbell, a
+// thermostat, the solar sensor, the outdoor temperature): not a restored one, once Home Assistant has settled.
+func (x *index) pickable(e ent) bool { return !(x.settled && e.restored) }
+
+// live is the entities of a domain the add-on may list by itself: all of them, less the ghosts.
+func (x *index) live(dom string) []ent {
+	var out []ent
+	for _, e := range x.all(dom) {
+		if !x.ghost[e.id] {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// firstPickable is the first of these the add-on may pick by itself.
+func (x *index) firstPickable(es []ent) string {
+	for _, e := range es {
+		if x.pickable(e) {
+			return e.id
+		}
+	}
+	return ""
 }
 
 func newIndex(d Dump, music *MusicMapping) *index {
-	x := &index{d: d, byID: map[string]ent{}, deviceHas: map[string]map[string]bool{}, isSpeaker: map[string]bool{}, deviceArea: map[string]string{}, deviceName: map[string]string{}}
+	x := &index{d: d, byID: map[string]ent{}, deviceHas: map[string]map[string]bool{}, isSpeaker: map[string]bool{}, deviceArea: map[string]string{}, deviceName: map[string]string{}, settled: d.Settled(), ghost: map[string]bool{}}
 	for _, dev := range d.Devices {
 		if id, _ := dev["id"].(string); id != "" {
 			x.deviceArea[id], _ = dev["area_id"].(string)
@@ -99,13 +133,51 @@ func newIndex(d Dump, music *MusicMapping) *index {
 		if class == "" {
 			class, _ = e["original_device_class"].(string)
 		}
-		x.byID[id] = ent{id: id, domain: domain(id), area: area, device: dev, platform: platform, name: name, class: class}
+		entry, _ := e["config_entry_id"].(string)
+		x.byID[id] = ent{id: id, domain: domain(id), area: area, device: dev, platform: platform, name: name, class: class, restored: st.restored(), entry: entry}
 	}
 	x.ents = make([]ent, 0, len(x.byID))
 	for _, e := range x.byID {
 		x.ents = append(x.ents, e)
 	}
 	sort.Slice(x.ents, func(i, j int) bool { return x.ents[i].id < x.ents[j].id })
+	if x.settled {
+		type key struct{ domain, name string }
+		liveNames := map[key]bool{}
+		liveDevices := map[key]map[string]bool{} // → the device ids of that name with a live entity of that domain
+		for _, e := range x.ents {
+			if e.restored {
+				continue
+			}
+			liveNames[key{e.domain, strings.ToLower(e.name)}] = true
+			if n := x.deviceName[e.device]; n != "" {
+				k := key{e.domain, strings.ToLower(n)}
+				if liveDevices[k] == nil {
+					liveDevices[k] = map[string]bool{}
+				}
+				liveDevices[k][e.device] = true
+			}
+		}
+		loaded := d.loadedEntries()
+		for _, e := range x.ents {
+			if !e.restored || (loaded != nil && e.entry != "" && !loaded[e.entry]) {
+				continue
+			}
+			ghost := liveNames[key{e.domain, strings.ToLower(e.name)}]
+			if n := x.deviceName[e.device]; n != "" && !ghost {
+				// Another device of the same name is the same device back under a new id. The entity's own device
+				// having live siblings says nothing: one endpoint of a power strip can die while the rest report.
+				for dev := range liveDevices[key{e.domain, strings.ToLower(n)}] {
+					if dev != e.device {
+						ghost = true
+					}
+				}
+			}
+			if ghost {
+				x.ghost[e.id] = true
+			}
+		}
+	}
 
 	// Speakers: the file's, else by device class — less Music Assistant's mirrors of players that exist already,
 	// less a camera's or doorbell's own speaker.
@@ -116,8 +188,8 @@ func newIndex(d Dump, music *MusicMapping) *index {
 		return x
 	}
 	var all, own []string
-	for _, e := range x.ents {
-		if e.domain != "media_player" || e.class != "speaker" || kiosks[e.platform] || x.deviceHas[e.device]["camera"] {
+	for _, e := range x.live("media_player") {
+		if e.class != "speaker" || kiosks[e.platform] || x.deviceHas[e.device]["camera"] {
 			continue
 		}
 		all = append(all, e.id)
@@ -176,23 +248,21 @@ func AutoMapping(d Dump) Mapping {
 func (x *index) autoHome() HomeMapping {
 	h := HomeMapping{People: []string{}}
 	if ws := x.all("weather"); len(ws) > 0 {
-		h.Weather = ws[0].id
+		h.Weather = x.firstPickable(ws)
 		for _, w := range ws {
-			if w.id == "weather.forecast_home" || w.id == "weather.home" {
+			if (w.id == "weather.forecast_home" || w.id == "weather.home") && x.pickable(w) {
 				h.Weather = w.id
 			}
 		}
 	}
-	if as := x.all("alarm_control_panel"); len(as) > 0 {
-		h.Alarm = as[0].id
-	}
-	for _, p := range x.all("person") {
+	h.Alarm = x.firstPickable(x.all("alarm_control_panel"))
+	for _, p := range x.live("person") {
 		h.People = append(h.People, p.id)
 	}
 	// An outdoor temperature: a sensor that says so in its name, not in a room; else the weather's.
 	for _, e := range x.all("sensor") {
 		n := strings.ToLower(e.id + " " + e.name)
-		if e.class == "temperature" && (strings.Contains(n, "outdoor") || strings.Contains(n, "outside") || strings.Contains(n, "exterior")) {
+		if e.class == "temperature" && x.pickable(e) && (strings.Contains(n, "outdoor") || strings.Contains(n, "outside") || strings.Contains(n, "exterior")) {
 			h.OutdoorTemperature = e.id
 			break
 		}
@@ -203,7 +273,7 @@ func (x *index) autoHome() HomeMapping {
 func (x *index) autoSecurity() SecurityMapping {
 	s := SecurityMapping{Cameras: []string{}, Doorbells: []string{}, CameraFor: map[string]string{}, Locks: []string{}, Entries: []string{}, Hazards: []string{}}
 	var cams []ent
-	for _, c := range x.all("camera") {
+	for _, c := range x.live("camera") {
 		// UniFi Protect's G4/G6 doorbells have a second, downward "package" camera: a channel, not a camera.
 		if strings.Contains(c.id, "package_camera") || strings.HasSuffix(strings.ToLower(c.name), "package camera") {
 			continue
@@ -214,6 +284,9 @@ func (x *index) autoSecurity() SecurityMapping {
 		}
 	}
 	for _, c := range cams {
+		if !x.pickable(c) { // the doorbell is one camera: not a restored one, once settled
+			continue
+		}
 		bell := strings.Contains(c.id, "doorbell") || strings.Contains(strings.ToLower(c.name), "doorbell")
 		if !bell && c.device != "" {
 			for _, e := range x.ents {
@@ -227,18 +300,18 @@ func (x *index) autoSecurity() SecurityMapping {
 			s.Doorbells = append(s.Doorbells, c.id)
 		}
 	}
-	for _, l := range x.all("lock") {
+	for _, l := range x.live("lock") {
 		if !vehicles[l.platform] {
 			s.Locks = append(s.Locks, l.id)
 		}
 	}
 	var entries []ent
-	for _, c := range x.all("cover") {
+	for _, c := range x.live("cover") {
 		if (c.class == "garage" || c.class == "gate" || c.class == "door") && !vehicles[c.platform] {
 			entries = append(entries, c)
 		}
 	}
-	for _, b := range x.all("binary_sensor") {
+	for _, b := range x.live("binary_sensor") {
 		if entryClasses[b.class] && !vehicles[b.platform] {
 			entries = append(entries, b)
 		}
@@ -260,7 +333,7 @@ func (x *index) autoSecurity() SecurityMapping {
 			}
 		}
 	}
-	for _, b := range x.all("binary_sensor") {
+	for _, b := range x.live("binary_sensor") {
 		if hazardClasses[b.class] && !vehicles[b.platform] {
 			s.Hazards = append(s.Hazards, b.id)
 		}
@@ -273,7 +346,7 @@ func (x *index) autoSecurity() SecurityMapping {
 // (UniFi Access, and Nuki/SwitchBot-style "open" buttons).
 func (x *index) autoDoors() []DoorMapping {
 	doors := []DoorMapping{}
-	for _, b := range x.all("button") {
+	for _, b := range x.live("button") {
 		n := strings.ToLower(b.id + " " + b.name)
 		if b.device == "" || vehicles[b.platform] || !(strings.Contains(n, "unlock") || (b.platform == "unifi_access" && !strings.Contains(n, "restart"))) {
 			continue
@@ -298,9 +371,12 @@ func (s SecurityMapping) any() bool {
 }
 
 func (x *index) autoEnergy() EnergyMapping {
-	e := EnergyMapping{LoadPower: []string{}, Consumers: []string{}}
+	// Solar, load, the day's totals, consumers and water are guessed from names. grid_power, battery_power and
+	// battery_level are not: a sign convention cannot be read off a name, so the file (or the skill's draft, which
+	// marks its guess "# check") says which sensors those are.
+	e := EnergyMapping{LoadPower: []PowerRef{}, Consumers: []string{}}
 	var powers, energies []ent
-	for _, s := range x.all("sensor") {
+	for _, s := range x.live("sensor") {
 		switch s.class {
 		case "power":
 			if !vehicles[s.platform] {
@@ -315,22 +391,22 @@ func (x *index) autoEnergy() EnergyMapping {
 	named := func(list []ent, words []string, not ...string) string {
 		for _, s := range list {
 			n := strings.ToLower(s.id + " " + s.name)
-			if containsAny(n, words) && !containsAny(n, not) {
+			if x.pickable(s) && containsAny(n, words) && !containsAny(n, not) {
 				return s.id
 			}
 		}
 		return ""
 	}
-	e.SolarPower = named(powers, []string{"solar", "pv_power", "production"})
-	if load := named(powers, []string{"consumption", "house_power", "home_power", "load_power", "main_panel", "total_power"}, "solar", "production"); load != "" {
-		e.LoadPower = []string{load}
+	e.SolarPower = PowerRef{Entity: named(powers, []string{"solar", "pv_power", "production"})}
+	if load := named(powers, []string{"consumption", "house_power", "home_power", "load_power", "main_panel", "total_power"}, "solar", "production", "grid", "battery"); load != "" {
+		e.LoadPower = []PowerRef{{Entity: load}}
 	}
 	e.SolarToday = named(energies, []string{"solar", "production"})
 	e.UsedToday = named(energies, []string{"consumption", "house", "home", "main_panel"}, "solar", "production")
 	// Consumers: the circuits drawing the most right now, a dozen of them; the totals above are not consumers.
-	taken := set(e.SolarPower)
-	for _, id := range e.LoadPower {
-		taken[id] = true
+	taken := set(e.SolarPower.Entity)
+	for _, ref := range e.LoadPower {
+		taken[ref.Entity] = true
 	}
 	type drawing struct {
 		id string
@@ -360,6 +436,9 @@ func (x *index) autoEnergy() EnergyMapping {
 		e.Consumers = append(e.Consumers, d.id)
 	}
 	for _, s := range x.all("sensor") {
+		if !x.pickable(s) {
+			continue
+		}
 		if s.class == "volume_flow_rate" && e.WaterFlow == "" {
 			e.WaterFlow = s.id
 		}
@@ -373,7 +452,8 @@ func (x *index) autoEnergy() EnergyMapping {
 }
 
 func (e EnergyMapping) any() bool {
-	return e.SolarPower != "" || len(e.LoadPower) > 0 || e.SolarToday != "" || e.UsedToday != "" || len(e.Consumers) > 0 || e.WaterFlow != ""
+	return e.SolarPower.Entity != "" || len(e.LoadPower) > 0 || e.GridPower.Entity != "" || e.BatteryPower.Entity != "" || e.BatteryLevel != "" ||
+		e.SolarToday != "" || e.UsedToday != "" || len(e.Consumers) > 0 || e.WaterFlow != ""
 }
 
 func (x *index) autoMusic() MusicMapping {

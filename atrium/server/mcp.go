@@ -266,6 +266,7 @@ func homeText(d house.Dump, domain, area string) string {
 	}
 	type row struct{ id, line string }
 	byArea := map[string][]row{}
+	restored := 0
 	for _, e := range d.Entities {
 		id, _ := e["entity_id"].(string)
 		if id == "" || e["disabled_by"] != nil || e["hidden_by"] != nil || e["entity_category"] != nil {
@@ -295,6 +296,10 @@ func homeText(d house.Dump, domain, area string) string {
 			if u := st.Attributes["unit_of_measurement"]; u != nil {
 				parts = append(parts, "unit="+fmt.Sprint(u))
 			}
+			if r, _ := st.Attributes["restored"].(bool); r {
+				parts = append(parts, "restored") // not provided by its integration since Home Assistant started
+				restored++
+			}
 		}
 		if p, _ := e["platform"].(string); p != "" {
 			parts = append(parts, "platform="+p)
@@ -302,7 +307,16 @@ func homeText(d house.Dump, domain, area string) string {
 		byArea[a] = append(byArea[a], row{id, id + "  " + strings.Join(parts, " · ")})
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Home Assistant: %s\n\nFloors:\n", d.Name)
+	fmt.Fprintf(&b, "Home Assistant: %s\n", d.Name)
+	if restored > 0 {
+		fmt.Fprintf(&b, "%d entities are marked restored: registered, but not provided by their integration since Home Assistant started (shown unavailable). ", restored)
+		if d.Settled() {
+			fmt.Fprintf(&b, "Home Assistant has been running %s, so they are not coming back by themselves: do not name them in the file unless the device is expected back.\n", d.RunningFor.Round(time.Minute))
+		} else {
+			fmt.Fprintf(&b, "Home Assistant is still starting up, so some may yet appear.\n")
+		}
+	}
+	fmt.Fprintf(&b, "\nFloors:\n")
 	for _, f := range d.Floors {
 		fmt.Fprintf(&b, "  %s  %v (level %v)\n", f["floor_id"], f["name"], f["level"])
 	}

@@ -42,7 +42,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.0"
+const version = "0.9.4"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -107,22 +107,27 @@ type Gateway struct {
 	SkillDir    string   // the atrium-mapping skill, carried in the image ("" = none)
 	WebDir      string   // the built web app to serve ("" = none)
 	Supervisor  []string // the addresses the Supervisor's ingress proxy connects from: the only peers the ingress listener believes
+	// The Supervisor's API ("http://supervisor" in the add-on; a test server in tests) and how long it is given.
+	SupervisorURL     string
+	SupervisorTimeout time.Duration
 	// Resolves an add-on slug to its addresses on the Supervisor's network (nil: by DNS, slug with dashes), and
-	// asks the Supervisor whether that add-on is running at this address (nil: GET /addons/<slug>/info). A writer
-	// must pass both, on every request: container addresses are reused when containers restart.
-	ResolveAddon func(slug string) []string
-	CheckAddon   func(slug, ip string) bool
+	// asks the Supervisor whether that add-on is running at this address (nil: GET /addons/<slug>/info, which
+	// needs hassio_api). A writer must pass both, on every request: container addresses are reused when containers
+	// restart. Each says why not, in words the owner can act on.
+	ResolveAddon func(slug string) ([]string, error)
+	CheckAddon   func(slug, ip string) error
 
 	mu           sync.Mutex
 	home         string
 	config       house.Config
 	mapping      house.Mapping
-	mappingErr   string    // why the file was refused, if it was (the last good mapping stays in use)
-	mappingAt    time.Time // the file's modification time last read
-	problems     []string  // what the last render could not use
-	rooms        int       // rooms in the last render
-	rendered     bool      // there has been a render (the first one is logged whatever it found)
-	generation   int       // bumped on every configuration or mapping change
+	mappingErr   string              // why the file was refused, if it was (the last good mapping stays in use)
+	mappingAt    time.Time           // the file's modification time last read
+	problems     []string            // what the last render could not use
+	stale        []house.StaleEntity // entities Home Assistant keeps for devices that are gone (listed, never acted on)
+	rooms        int                 // rooms in the last render
+	rendered     bool                // there has been a render (the first one is logged whatever it found)
+	generation   int                 // bumped on every configuration or mapping change
 	house        built
 	houseDefault built // the same without atrium.yaml, for ?layout=default
 	building     singleflight.Group
@@ -151,11 +156,15 @@ type Layout struct {
 	Rooms    int      `json:"rooms"`              // rooms the house has, as drawn
 	Error    string   `json:"error,omitempty"`    // the file was refused (bad YAML, a room without an id…)
 	Problems []string `json:"problems,omitempty"` // what the last render dropped
+	// Entities Home Assistant still registers though their integration, loaded, has not provided them since it
+	// started: left behind by devices that were removed or renamed. Only the owner may delete them, in Home
+	// Assistant; the page says where.
+	Stale []house.StaleEntity `json:"stale,omitempty"`
 }
 
 // layout is the Layout as things stand; g.mu held.
 func (g *Gateway) layout() Layout {
-	return Layout{Path: g.mappingHostPath(), Exists: !g.mappingAt.IsZero(), Custom: g.mapping.Custom(), Rooms: g.rooms, Error: g.mappingErr, Problems: g.problems}
+	return Layout{Path: g.mappingHostPath(), Exists: !g.mappingAt.IsZero(), Custom: g.mapping.Custom(), Rooms: g.rooms, Error: g.mappingErr, Problems: g.problems, Stale: g.stale}
 }
 
 // isMine says whether a request's Host names this machine (with or without a port).
@@ -265,17 +274,19 @@ func (in Ingress) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	peer, _, _ := net.SplitHostPort(r.RemoteAddr)
 	if !in.fromSupervisor(peer) {
 		// Not the Supervisor: perhaps an add-on the owner lets write the layout (the Claude Code add-on, running
-		// the atrium-mapping skill). It is known by its container's address on the Supervisor's network.
-		if slug := in.writerAt(peer); slug != "" {
-			if r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") != "" {
-				http.Error(w, "web pages may not use Atrium this way", http.StatusForbidden)
-				return
-			}
-			in.serve(w, r, Identity{Login: slug, Name: "Add-on " + slug, Device: "add-on", Addon: true}, "")
+		// the atrium-mapping skill). It is known by its container's address on the Supervisor's network. When it
+		// is not one, the answer says why, so the skill can tell the owner what to do.
+		slug, why := in.writerAt(peer)
+		if slug == "" {
+			log.Printf("ingress request from %s refused: %s", r.RemoteAddr, why)
+			http.Error(w, "refused: "+why, http.StatusForbidden)
 			return
 		}
-		log.Printf("ingress request from %s, which is not the Supervisor or a listed add-on: refused", r.RemoteAddr)
-		http.Error(w, "only the Supervisor and listed add-ons may use this port", http.StatusForbidden)
+		if r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") != "" {
+			http.Error(w, "web pages may not use Atrium this way", http.StatusForbidden)
+			return
+		}
+		in.serve(w, r, Identity{Login: slug, Name: "Add-on " + slug, Device: "add-on", Addon: true}, "")
 		return
 	}
 	switch r.Header.Get("Sec-Fetch-Site") {
@@ -306,62 +317,109 @@ func writerPath(p string) bool {
 
 // writerAt says which listed add-on, if any, is at this address on the Supervisor's network: its slug with
 // dashes must resolve to the address (the Supervisor's DNS) and the Supervisor must say the add-on is running
-// there. Both are asked every time, since addresses are reused when containers restart. IPv4 only: the
-// Supervisor reports one.
-func (g *Gateway) writerAt(ip string) string {
+// there. Both are asked every time, since addresses are reused when containers restart. When neither holds, the
+// second answer says why: an IPv6 peer, a slug that does not resolve, an address that is not a listed slug's, the
+// Supervisor's status, or no slug listed at all. The Supervisor reports one IPv4 address per add-on, so an IPv6
+// peer can never be confirmed (the ingress listener is IPv4-only for that reason; this check is for the rest).
+func (g *Gateway) writerAt(ip string) (slug, why string) {
 	ip = strings.TrimPrefix(ip, "::ffff:")
-	if parsed := net.ParseIP(ip); parsed == nil || parsed.To4() == nil {
-		return ""
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return "", fmt.Sprintf("%q is not an address", ip)
 	}
-	for _, slug := range g.Opts.Writers {
-		slug = strings.TrimSpace(slug)
-		if slug == "" {
+	if parsed.To4() == nil {
+		return "", fmt.Sprintf("IPv6 peer %s: add-ons are known by their IPv4 address only (the Supervisor reports one); connect over IPv4", ip)
+	}
+	writers := g.writers()
+	if len(writers) == 0 {
+		return "", fmt.Sprintf("%s is not the Supervisor, and no add-on is listed under writers (Apps that may write the layout)", ip)
+	}
+	var reasons []string
+	for _, slug := range writers {
+		var addrs []string
+		var err error
+		if g.ResolveAddon != nil {
+			addrs, err = g.ResolveAddon(slug)
+		} else {
+			addrs, err = net.LookupHost(strings.ReplaceAll(slug, "_", "-"))
+		}
+		if err != nil || len(addrs) == 0 {
+			reasons = append(reasons, fmt.Sprintf("%s does not resolve on the add-on network (is it installed and started? a slug is <repository-hash>_<name>)", slug))
 			continue
 		}
-		var addrs []string
-		if g.ResolveAddon != nil {
-			addrs = g.ResolveAddon(slug)
-		} else {
-			addrs, _ = net.LookupHost(strings.ReplaceAll(slug, "_", "-"))
-		}
+		var v4 []string
 		for _, a := range addrs {
-			if strings.TrimPrefix(a, "::ffff:") != ip {
-				continue
+			if a = strings.TrimPrefix(a, "::ffff:"); net.ParseIP(a) != nil && net.ParseIP(a).To4() != nil {
+				v4 = append(v4, a)
 			}
-			check := g.CheckAddon
-			if check == nil {
-				check = g.supervisorSaysRunningAt
-			}
-			if check(slug, ip) {
-				return slug
-			}
-			log.Printf("%s resolves to %s but the Supervisor does not say it is running there: refused", slug, ip)
 		}
+		if !contains(v4, ip) {
+			reasons = append(reasons, fmt.Sprintf("%s is at %s, not %s", slug, strings.Join(v4, ", "), ip))
+			continue
+		}
+		check := g.CheckAddon
+		if check == nil {
+			check = g.supervisorSaysRunningAt
+		}
+		if err := check(slug, ip); err != nil {
+			reasons = append(reasons, fmt.Sprintf("%s resolves to %s but the Supervisor does not confirm it: %v", slug, ip, err))
+			continue
+		}
+		return slug, ""
 	}
-	return ""
+	return "", fmt.Sprintf("%s is not a listed add-on: %s", ip, strings.Join(reasons, "; "))
 }
 
-// supervisorSaysRunningAt asks the Supervisor whether an add-on is started and has this address.
-func (g *Gateway) supervisorSaysRunningAt(slug, ip string) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+// writers is the slugs allowed to write the layout, trimmed; g.mu is taken, since the set-up page can add one.
+func (g *Gateway) writers() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	var out []string
+	for _, slug := range g.Opts.Writers {
+		if slug = strings.TrimSpace(slug); slug != "" {
+			out = append(out, slug)
+		}
+	}
+	return out
+}
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+// supervisorSaysRunningAt asks the Supervisor (GET /addons/<slug>/info, which needs hassio_api; the default role
+// allows it) whether an add-on is started and has this address. Any other answer refuses, and says what it was:
+// a 403 means hassio_api is missing, a 404 that the slug is not installed.
+func (g *Gateway) supervisorSaysRunningAt(slug, ip string) error {
+	timeout := g.SupervisorTimeout
+	if timeout == 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", "http://supervisor/addons/"+url.PathEscape(slug)+"/info", nil)
-	req.Header.Set("Authorization", "Bearer "+g.Addon.Token)
-	res, err := http.DefaultClient.Do(req)
+	info, err := g.addonInfo(ctx, slug)
 	if err != nil {
-		return false
+		var se *supervisorError
+		switch {
+		case errors.As(err, &se) && se.Status == http.StatusForbidden:
+			return fmt.Errorf("%v (this add-on lacks hassio_api)", err)
+		case errors.As(err, &se) && se.Status == http.StatusNotFound:
+			return fmt.Errorf("%v (no such add-on)", err)
+		}
+		return err
 	}
-	defer res.Body.Close()
-	var info struct {
-		Data struct {
-			State string `json:"state"`
-			IP    string `json:"ip_address"`
-		} `json:"data"`
+	if info.State != "started" {
+		return fmt.Errorf("the Supervisor says %s is %q, not started", slug, info.State)
 	}
-	if json.NewDecoder(res.Body).Decode(&info) != nil {
-		return false
+	if info.IP != ip {
+		return fmt.Errorf("the Supervisor says %s is at %q, not %s", slug, info.IP, ip)
 	}
-	return info.Data.State == "started" && info.Data.IP == ip
+	return nil
 }
 
 func (g *Gateway) fromSupervisor(ip string) bool {
@@ -372,6 +430,20 @@ func (g *Gateway) fromSupervisor(ip string) bool {
 	}
 	return false
 }
+
+// serveIngress serves the Home Assistant side on an IPv4-only listener. ":8099" on "tcp" would be dual-stack, and
+// an add-on whose hostname also resolves to IPv6 would then arrive as an IPv6 peer, which the Supervisor can never
+// confirm (it reports one IPv4 address per add-on). With IPv6 refused at the socket, clients fall back to IPv4; the
+// Supervisor's own ingress proxy connects over IPv4 anyway.
+func serveIngress(addr string, g *Gateway) error {
+	ln, err := ingressListener(addr)
+	if err != nil {
+		return err
+	}
+	return http.Serve(ln, Ingress{g})
+}
+
+func ingressListener(addr string) (net.Listener, error) { return net.Listen("tcp4", addr) }
 
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
@@ -435,6 +507,18 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		g.serveConfig(w, r, id)
 	case r.URL.Path == "/atrium/mapping":
 		g.serveMapping(w, r, id)
+	case r.URL.Path == "/atrium/addons", r.URL.Path == "/atrium/writers":
+		// Granting writers: Home Assistant administrators through ingress only (allowed has checked they are one);
+		// never a writer (writerPath leaves these out), never the home-network port, not even the tailnet.
+		if !id.HomeAssistant {
+			http.Error(w, "writers are granted from the set-up page in Home Assistant only", http.StatusForbidden)
+			return
+		}
+		if r.URL.Path == "/atrium/addons" {
+			g.serveAddons(w, r)
+		} else {
+			g.serveWriters(w, r, id)
+		}
 	case r.URL.Path == "/mcp":
 		g.serveMCP(w, r, id)
 	case strings.HasPrefix(r.URL.Path, "/atrium/skill/") && g.SkillDir != "":
@@ -691,22 +775,17 @@ func (g *Gateway) mappingHostPath() string {
 }
 
 // addonSlug asks the Supervisor what this add-on is called ("df84f1fd_atrium" when installed from the repository).
-func addonSlug(token string) string {
+func (g *Gateway) addonSlug() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", "http://supervisor/addons/self/info", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return ""
-	}
-	defer res.Body.Close()
 	var info struct {
 		Data struct {
 			Slug string `json:"slug"`
 		} `json:"data"`
 	}
-	json.NewDecoder(res.Body).Decode(&info)
+	if g.supervisorJSON(ctx, "GET", "/addons/self/info", nil, &info) != nil {
+		return ""
+	}
 	return info.Data.Slug
 }
 
@@ -773,8 +852,8 @@ func main() {
 			go func() { log.Fatal(http.ListenAndServe(local, NewLocal(g))) }()
 		}
 		if ingress := os.Getenv("ATRIUM_INGRESS"); ingress != "" { // e.g. 127.0.0.1:8099: pretends to be the Supervisor's ingress
-			g.Supervisor = []string{"127.0.0.1", "::1"}
-			go func() { log.Fatal(http.ListenAndServe(ingress, Ingress{g})) }()
+			g.Supervisor = []string{"127.0.0.1"}
+			go func() { log.Fatal(serveIngress(ingress, g)) }()
 		}
 		log.Printf("DEVELOPMENT MODE: no Tailscale; every caller is %s. Listening on http://%s, upstream %s, web %q", login, listen, up, g.WebDir)
 		log.Fatal(http.ListenAndServe(listen, g))
@@ -795,7 +874,7 @@ func main() {
 	// The declared layout lives in the add-on's own configuration folder, mapped read-only at /config here and
 	// /addon_configs/<slug>/ on the host. Only that folder: Home Assistant's own configuration (secrets, auth
 	// storage) is not mounted.
-	g.Slug = addonSlug(token)
+	g.Slug = g.addonSlug()
 	g.MappingPath = env("ATRIUM_MAPPING", "/config/atrium.yaml") // the add-on's own folder (addon_config), not Home Assistant's
 	if !g.readMapping() {
 		log.Printf("mapping: no %s yet; the rooms are drawn from Home Assistant's areas, and the custom screens wait for the atrium-mapping skill (or you)", g.MappingPath)
@@ -812,8 +891,8 @@ func main() {
 		log.Printf("could not resolve \"supervisor\" (%v); believing only %v on the ingress port", err, g.Supervisor)
 	}
 	go func() {
-		log.Printf("Panel listening for ingress on :%s, from the Supervisor at %v only", env("ATRIUM_INGRESS_PORT", "8099"), g.Supervisor)
-		log.Fatal(http.ListenAndServe(":"+env("ATRIUM_INGRESS_PORT", "8099"), Ingress{g}))
+		log.Printf("Panel listening for ingress on :%s (IPv4 only), from the Supervisor at %v and the listed add-ons %v", env("ATRIUM_INGRESS_PORT", "8099"), g.Supervisor, g.writers())
+		log.Fatal(serveIngress(":"+env("ATRIUM_INGRESS_PORT", "8099"), g))
 	}()
 
 	// The home network's side: the app at home or over a VPN, without Tailscale, with its Home Assistant token.

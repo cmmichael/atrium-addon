@@ -18,6 +18,8 @@ const (
 
 type ent struct {
 	id, domain, area, device, platform, name, class string
+	restored                                        bool   // see State.restored
+	entry                                           string // its integration's config entry id
 }
 
 // Render draws the house: the rooms from Home Assistant's areas, floors, devices and entities (so a new device is
@@ -42,13 +44,20 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 	}
 	shows := func(e ent) bool { return x.shows(e) }
 
-	// exists keeps an entity id Home Assistant has; anything else is dropped and reported, once.
+	// exists keeps an entity id Home Assistant has; anything else is dropped and reported, once. A restored entity
+	// (registered, but not provided by its integration since Home Assistant started) is kept, and reported once
+	// Home Assistant has settled: it shows as unavailable until its device is back or the line is changed.
 	reported := map[string]bool{}
+	fromFile := true // whether the ids checked now are the file's (a restored one is reported) or the add-on's own guess
 	exists := func(where, id string) string {
 		if id == "" {
 			return ""
 		}
-		if d.States[id] != nil {
+		if st := d.States[id]; st != nil {
+			if fromFile && x.settled && st.restored() && !reported[id] {
+				reported[id] = true
+				problem("%s: %s is restored: Home Assistant has not seen it since it started, so it shows as unavailable", where, id)
+			}
 			return id
 		}
 		if !reported[id] {
@@ -57,7 +66,13 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 		}
 		return ""
 	}
-	has := func(id string) string { // an id Home Assistant has, or nothing; not reported (it was its own pick)
+	has := func(id string) string { // an id Home Assistant has and the add-on may pick by itself, or nothing; not reported
+		if e, ok := byID[id]; ok {
+			if x.pickable(e) {
+				return id
+			}
+			return ""
+		}
 		if d.States[id] != nil {
 			return id
 		}
@@ -172,6 +187,9 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 	}
 	unassigned := &area{id: unassignedRoom, name: "Unassigned"}
 	for _, e := range ents {
+		if x.ghost[e.id] { // left behind by a device that is back under another id: the room shows the live one
+			continue
+		}
 		if ar := byArea[e.area]; ar != nil {
 			ar.ents = append(ar.ents, e)
 		} else if shows(e) {
@@ -240,7 +258,7 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 			}
 			if temp == "" {
 				for _, e := range ar.ents {
-					if e.domain == "sensor" && e.class == "temperature" && isRoomTemperature(d.States[e.id]) {
+					if e.domain == "sensor" && e.class == "temperature" && x.pickable(e) && isRoomTemperature(d.States[e.id]) {
 						temp = e.id
 						break
 					}
@@ -254,7 +272,7 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 			}
 			if hum == "" {
 				for _, e := range ar.ents {
-					if e.domain == "sensor" && e.class == "humidity" {
+					if e.domain == "sensor" && e.class == "humidity" && x.pickable(e) {
 						hum = e.id
 						break
 					}
@@ -362,7 +380,7 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 	}
 	var rest []SceneRef
 	for _, e := range ents {
-		if e.domain == "scene" && !sceneSeen[e.id] && !hidden(e.id) {
+		if e.domain == "scene" && !sceneSeen[e.id] && !hidden(e.id) && !x.ghost[e.id] {
 			rest = append(rest, SceneRef{Entity: e.id, Name: firstOf(c.Entities[e.id].Name, m.Names[e.id], e.name), Room: roomOf(e.area)})
 		}
 	}
@@ -406,6 +424,7 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 			music = &a
 		}
 	}
+	fromFile = m.Home.set()
 	h.Summary.Weather = exists("home", home.Weather)
 	h.Summary.OutdoorTemp = exists("home", home.OutdoorTemperature)
 	h.Summary.IndoorTemp = exists("home", home.IndoorTemperature)
@@ -414,6 +433,7 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 
 	tab := func(name string) bool { v, ok := c.Tabs[name]; return !ok || v }
 	if s := security; s != nil && tab("security") {
+		fromFile = m.Security != nil
 		h.Security.Cameras = visible("security", s.Cameras)
 		h.Security.Doorbells = visible("security", s.Doorbells)
 		h.Security.Locks = visible("security", s.Locks)
@@ -422,6 +442,7 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 		doors := s.Doors
 		if doors == nil {
 			doors = x.autoDoors()
+			fromFile = false
 		}
 		for _, door := range doors {
 			if id := exists("security", door.Unlock); id != "" && !hidden(id) {
@@ -429,6 +450,7 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 				h.Security.Doors = append(h.Security.Doors, Door{Unlock: id, Contact: contact, Name: firstOf(door.Name, m.Names[id], haName(firstOf(contact, id)))})
 			}
 		}
+		fromFile = m.Security != nil // camera_for below is the file's again
 		for _, cam := range h.Security.Cameras {
 			types := d.CameraStreams[cam]
 			switch {
@@ -455,8 +477,24 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 		}
 	}
 	if e := energy; e != nil && tab("energy") {
-		h.Energy.SolarPower = exists("energy", e.SolarPower)
-		h.Energy.LoadPower = existing("energy", e.LoadPower)
+		fromFile = m.Energy != nil
+		// A power sensor, with its sign noted for the apps when the file says it is the opposite of the convention.
+		power := func(ref PowerRef) string {
+			id := exists("energy", ref.Entity)
+			if id != "" && ref.Invert && !contains(h.Energy.Inverted, id) {
+				h.Energy.Inverted = append(h.Energy.Inverted, id)
+			}
+			return id
+		}
+		h.Energy.SolarPower = power(e.SolarPower)
+		for _, ref := range e.LoadPower {
+			if id := power(ref); id != "" && !contains(h.Energy.LoadPower, id) {
+				h.Energy.LoadPower = append(h.Energy.LoadPower, id)
+			}
+		}
+		h.Energy.GridPower = power(e.GridPower)
+		h.Energy.BatteryPower = power(e.BatteryPower)
+		h.Energy.BatteryLevel = exists("energy", e.BatteryLevel)
 		h.Energy.SolarToday = exists("energy", e.SolarToday)
 		h.Energy.UsedToday = exists("energy", e.UsedToday)
 		h.Energy.Consumers = visible("energy", e.Consumers)
@@ -469,6 +507,7 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 		}
 	}
 	if mu := music; mu != nil && tab("music") {
+		fromFile = m.Music != nil
 		h.Speakers = visible("music", mu.Speakers)
 		for _, id := range h.Speakers {
 			if h.Names[id] == "" {

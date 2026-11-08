@@ -40,7 +40,14 @@ Atrium at all.
   slug with a dash. No token: Atrium knows your app by its address. `claude mcp add --transport http atrium
   http://df84f1fd-atrium:8099/mcp`, or plain HTTP: `curl -sS -X PUT --data-binary @atrium.yaml
   http://df84f1fd-atrium:8099/atrium/mapping` (answers `{"rooms": N, "problems": [...], "path": ...}`), and
-  `GET` the same path to read it back. A 403 means the owner has not listed your app.
+  `GET` the same path to read it back. No extra flags: Atrium's port is IPv4-only, so curl falls back to IPv4 by
+  itself. A 403 is not only "not listed": its body (and Atrium's log) names the cause, and you tell the owner the
+  remedy. *no add-on is listed under writers* or *`<slug>` is at `<address>`, not `<peer>`*: the owner lists your
+  app's slug (`<repository-hash>_<name>`; `d7e97e69_claudecode` for the Claude Code app installed from its own
+  repository) under Atrium's **Apps that may write the layout**. *`<slug>` does not resolve*: the listed slug is
+  misspelt, or that app is not started. *Supervisor status 403*: Atrium is older than 0.9.1 and lacks
+  `hassio_api`; the owner updates it. *Supervisor status 404* or *is "stopped"*: the listed app is not installed
+  or not running. *IPv6 peer*: retry over IPv4 (`curl -4`). *the Supervisor did not answer*: try again shortly.
 - **From a device on the owner's tailnet** (your Tailscale login is the owner's or an admin's): the same at
   `https://atrium.<tailnet>.ts.net` — `claude mcp add --transport http atrium https://atrium.<tailnet>.ts.net/mcp`.
 - **Neither**: run `draft.py` against Home Assistant with a long-lived access token (below), review, and give the
@@ -70,6 +77,13 @@ Assistant has). Then look at the rooms as Atrium draws them (`atrium_layout_stat
 page or the app for the picture) and add overrides only where they are wrong. Check, in this order:
 
 - **Every `# check` line.** Decide, then delete the comment.
+- **Restored entities.** `atrium_home` marks an entity `restored` when Home Assistant registers it but its
+  integration has not provided it since Home Assistant started (its state is unavailable). Once Home Assistant has
+  run ten minutes those are devices that are gone or renamed, and the draft already leaves them out of its guesses
+  and skips ones with a live twin of the same name; do not name one in the file unless the device is expected
+  back (the add-on accepts it and reports it as a problem, and the app shows it unavailable). The set-up page
+  lists the stale ones for the owner to delete in Home Assistant; never delete, rename or recreate entities
+  yourself to tidy them.
 - **Rooms that are not rooms.** Storage, utility, plant rooms, "Server", "Driveway": `hide: true` them, or borrow
   their one useful entity into the room it serves with `entities:`. The **Unassigned** room (entities in no
   area) is worth a look: assign them an area in Home Assistant if they belong somewhere, or hide the room.
@@ -84,12 +98,17 @@ page or the app for the picture) and add overrides only where they are wrong. Ch
   phones, or Music Assistant copies of players that already exist. One entity per physical speaker.
 - **The doorbell.** `security.doorbells` lists cameras; make sure it is the camera at the door, not a second
   channel of it, and that `camera_for` maps each entry to the camera that sees it.
-- **Energy.** Find the house's solar, grid and load sensors. `solar_power` is positive when producing;
+- **Energy.** Find the house's solar, load, grid and battery sensors. `solar_power` is positive when producing;
   `load_power` positive when consuming (several entries are summed, so list the mains legs or the one house
-  total, not both); `solar_today` and `used_today` are the day's totals. Units are read from each sensor (W or
-  kW; kWh, Wh or MWh), so pick the right quantity, not the right unit. `consumers` is the "Using now" list: keep
-  the circuits worth watching (oven, EV, pool pump), drop the rest. If the house has water metering, fill in
-  `water_flow` and `water_today`; otherwise delete those lines.
+  total, not both); `grid_power` is signed, positive when importing; `battery_power` signed, positive when
+  discharging; `battery_level` is a percentage. Check each sign against the live state (a house importing at
+  night must show a positive grid value); for a sensor that reports the opposite sign write
+  `{entity: sensor.x, invert: true}`. `solar + battery + grid = load`: the apps derive one missing term from the
+  other three, so a house with a battery needs at least three of the four, and a house without one leaves the
+  battery keys out (never name a phone's battery). `solar_today` and `used_today` are the day's totals. Units
+  are read from each sensor (W or kW; kWh, Wh or MWh), so pick the right quantity, not the right unit.
+  `consumers` is the "Using now" list: keep the circuits worth watching (oven, EV, pool pump), drop the rest. If
+  the house has water metering, fill in `water_flow` and `water_today`; otherwise delete those lines.
 - **People.** `home.people` should be the household, not every `person.*` (guests, test users).
 - **Whole integrations.** A car, a printer, a test integration: one `hide: [integration:<platform>]` line is
   better than hiding its entities one by one.
@@ -127,7 +146,7 @@ Then:
 
 1. `ha apps logs df84f1fd_atrium` — read the `mapping:` lines. The good case is one line, `mapping: N rooms,
    no problems`. Each other line names something that could not be used (an entity Home Assistant does not
-   have, a floor that is not a floor) or why the whole file was refused (bad YAML, an unknown key, a room
+   have, a floor that is not a floor), a restored entity the file names (kept, but unavailable), or why the whole file was refused (bad YAML, an unknown key, a room
    without an id; the last good file stays in use until it is fixed). Fix the file — never add an id to
    Home Assistant to satisfy it — and save again; the add-on re-reads on change.
 2. Open the add-on's set-up page (its ingress panel in the Home Assistant sidebar): it shows whether the file
