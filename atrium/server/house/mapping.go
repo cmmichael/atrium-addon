@@ -377,6 +377,7 @@ type DoorMapping struct {
 	Unlock  string `yaml:"unlock"`
 	Contact string `yaml:"contact,omitempty"`
 	Name    string `yaml:"name,omitempty"`
+	Access  string `yaml:"access,omitempty"` // the door's access event (who came in, how); default: one on the button's device
 }
 
 type EnergyMapping struct {

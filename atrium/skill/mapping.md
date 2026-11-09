@@ -87,7 +87,7 @@ security:                         # the Security screen; absent = no Security ta
   entries: [binary_sensor.front_door, binary_sensor.garage_door]   # door, window and gate contacts
   hazards: [binary_sensor.smoke_hall, binary_sensor.leak_laundry]  # smoke, gas, CO, leak sensors
   doors:                          # doors whose lock is a button (UniFi Access); absent = the add-on's guess, [] = none
-    - { unlock: button.front_door_unlock, contact: binary_sensor.front_door, name: Front door }
+    - { unlock: button.front_door_unlock, contact: binary_sensor.front_door, name: Front door, access: event.front_door_access }   # access: the door's access event (who came in, how); default: the button's device's
 
 energy:                           # the Energy screen; absent = no Energy tab
   solar_power: sensor.pv_power                   # W or kW: the apps read the sensor's unit; positive when producing

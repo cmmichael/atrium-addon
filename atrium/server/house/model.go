@@ -75,6 +75,9 @@ type Door struct {
 	Unlock  string `json:"unlock"`            // button.*
 	Contact string `json:"contact,omitempty"` // binary_sensor.* door contact, for open/closed
 	Name    string `json:"name"`
+	// The door's access event (UniFi Access: event.*_access), whose attributes say who came in and how; the apps
+	// read its history for the day's story, since the logbook drops them.
+	Access string `json:"access,omitempty"`
 }
 
 // Action is one Home Assistant service call: what a remote's key, input or button does.

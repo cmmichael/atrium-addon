@@ -465,7 +465,11 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 		for _, door := range doors {
 			if id := exists("security", door.Unlock); id != "" && !hidden(id) {
 				contact := exists("security", door.Contact)
-				h.Security.Doors = append(h.Security.Doors, Door{Unlock: id, Contact: contact, Name: firstOf(door.Name, m.Names[id], haName(firstOf(contact, id)))})
+				access := exists("security", door.Access)
+				if access == "" {
+					access = x.accessFor(id)
+				}
+				h.Security.Doors = append(h.Security.Doors, Door{Unlock: id, Contact: contact, Name: firstOf(door.Name, m.Names[id], haName(firstOf(contact, id))), Access: access})
 			}
 		}
 		fromFile = m.Security != nil // camera_for below is the file's again

@@ -3,6 +3,12 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.21
+
+- `security.doors[].access`: the door's access event (UniFi Access), found on the button's device or named in the
+  file, so the app's "What happened" can say who came in and how (the logbook drops those attributes; the app
+  reads the event's history).
+
 ## 0.9.20
 
 - `security.rings`: the ring entity behind each doorbell camera (the device's doorbell event, whose state is the

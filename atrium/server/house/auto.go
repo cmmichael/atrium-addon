@@ -521,3 +521,18 @@ func (x *index) ringFor(camera string) string {
 	}
 	return ring
 }
+
+// accessFor is the access event on a door button's device (UniFi Access: event.<door>_access), whose attributes
+// name who came in and how; "" when the device has none.
+func (x *index) accessFor(button string) string {
+	b := x.byID[button]
+	if b.device == "" {
+		return ""
+	}
+	for _, e := range x.ents {
+		if e.device == b.device && e.domain == "event" && strings.Contains(e.id, "access") && !strings.Contains(e.id, "doorbell") {
+			return e.id
+		}
+	}
+	return ""
+}
