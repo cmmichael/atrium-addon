@@ -3,6 +3,14 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.13
+
+- Atrium updates itself from the app, on every route. `GET /atrium/update` says whether a newer add-on is
+  published and `POST /atrium/update` (owner and administrators) asks Home Assistant to install it, through the
+  update entity Home Assistant keeps for every add-on (`update.install`). No new privileges: the add-on still
+  asks the Supervisor for nothing beyond its own info. The apps show the card whenever Home Assistant knows of a
+  newer version, not only when the app needs one.
+
 ## 0.9.12
 
 - Water: a meter whose data arrives days late (a water company's portal integration) is no longer captioned

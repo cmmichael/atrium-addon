@@ -127,9 +127,10 @@ still picture, so their tiles show "Live view" until one is opened.
   Web pages from other sites cannot use it.
 - With HTTPS certificates enabled for your tailnet (Tailscale admin console → DNS), the address is `https://`;
   otherwise plain HTTP inside the tailnet's own encryption.
-- When the app is newer than the add-on, its Home screen says so. A Home Assistant administrator signed in
-  directly can press **Update now** there (the Supervisor does the update, through Home Assistant, as for any
-  app); over Tailscale the card points to Settings → Apps → Atrium in Home Assistant.
+- When a newer add-on is published (or the app needs one), the app's Home screen says so, and the owner or an
+  administrator can press **Update now** there, over Tailscale too. The add-on asks Home Assistant's own update
+  entity for the add-on to install it (`update.install`), as pressing Update in Home Assistant would; Atrium
+  restarts and the app reconnects. The add-on asks the Supervisor for nothing more than before.
 - Nothing inside Home Assistant is changed: no custom integration, no change to its sign-in.
 - The in-app preferences live in `/data/config.json` and can be read and written at `/atrium/config` (JSON, `GET`
   and `PUT`, administrators only): `name`, `tabs`, `floors`, `rooms` (by room id: `hidden`, `name`, `floor`,
