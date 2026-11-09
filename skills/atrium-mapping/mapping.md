@@ -123,6 +123,7 @@ remotes:                          # televisions and the like; absent = one per t
     buttons:                      # named buttons under the keys: a scene, a script, a service
       - { name: Movie night, icon: film, action: scene.movie_night }
       - { name: Lights off, icon: lightbulb, action: { service: light.turn_off, entity: light.living_room } }
+    readouts: [sensor.living_tv_rx, sensor.living_tv_tx, sensor.tv_plug_power]   # sensors shown on the remote (throughput, power); default: the set's own, [] = none
   - name: Receiver                # a media player alone: its inputs and whatever keys the file gives it
     player: media_player.avr
     inputs: media_player.avr
@@ -404,7 +405,10 @@ camera's or doorbell's own speaker. Music Assistant's copies of players that alr
   Roku, Apple TV, Sony Bravia; LG webOS through its button service), power and play/pause from the media
   player, its `source_list` as the inputs, its volume level where it reports one. A television known to two
   integrations is one remote, the core integration's. A remote's own power key is not used by default (on a Frame
-  it toggles art mode): power is the media player's `turn_on`/`turn_off`. A receiver alone is not a remote.
+  it toggles art mode): power is the media player's `turn_on`/`turn_off`. A receiver alone is not a remote. Each remote's `readouts` are the data-rate sensors (received, then sent) and
+  power sensors on the set's device and on any device sharing its MAC address: the UniFi Network integration's
+  client device for the television, say, whose RX and TX sensors Home Assistant keeps disabled until they are
+  enabled on the device page. At most four; the file's `readouts` list replaces them.
 - **cameras**: how each one streams comes from Home Assistant (HLS through the add-on for UniFi Protect, WebRTC
   for Nest); a WebRTC-only camera has no still. Clips come from the camera's media source when it has one
   (UniFi Protect). A UniFi doorbell's second "package" channel is not listed.

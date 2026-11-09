@@ -3,6 +3,17 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.14
+
+- Remotes show readings about the set: its network throughput and its power draw. `remotes[].readouts` names
+  the sensors; without it, the add-on takes the data-rate and power sensors on the television's device and on
+  any device sharing its MAC address (the UniFi Network integration's client device for the set, whose RX and TX
+  sensors Home Assistant keeps disabled until enabled). `readouts: []` turns them off.
+- The app's diagnostics come here and nowhere else: `POST /atrium/telemetry` takes an app's lines (when it
+  launched and why, background and foreground, how long each connection took and why it dropped; nothing about
+  the house), the add-on writes them to its log and keeps the latest per device for `GET /atrium/telemetry`
+  (owner and administrators). Off in the app under Settings → Diagnostics.
+
 ## 0.9.13
 
 - Atrium updates itself from the app, on every route. `GET /atrium/update` says whether a newer add-on is

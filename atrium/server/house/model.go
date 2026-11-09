@@ -97,6 +97,9 @@ type Remote struct {
 	Keys    map[string]Action `json:"keys"`
 	Inputs  *Inputs           `json:"inputs,omitempty"`
 	Buttons []RemoteButton    `json:"buttons,omitempty"`
+	// Sensors about the set, shown on the remote: its network throughput (a UniFi client's RX and TX), its power
+	// draw (a smart plug). From the file, else sensors on the television's device or on a device sharing its MAC.
+	Readouts []string `json:"readouts,omitempty"`
 }
 
 // Inputs is the input (or app) picker: a media player's own source list, live from its state (select_source),

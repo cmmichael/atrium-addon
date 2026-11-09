@@ -107,15 +107,16 @@ func (w WidgetItemMapping) MarshalYAML() (any, error) {
 // `keys`, `inputs` and `buttons` map the rest to Home Assistant scripts and services. `volume` names a receiver
 // whose volume the remote drives instead of the television's.
 type RemoteMapping struct {
-	ID      string                   `yaml:"id,omitempty"`
-	Name    string                   `yaml:"name,omitempty"`
-	Room    string                   `yaml:"room,omitempty"`
-	Remote  string                   `yaml:"remote,omitempty"`
-	Player  string                   `yaml:"player,omitempty"`
-	Volume  string                   `yaml:"volume,omitempty"`
-	Inputs  *InputsMapping           `yaml:"inputs,omitempty"`
-	Keys    map[string]ActionMapping `yaml:"keys,omitempty"`
-	Buttons []ButtonMapping          `yaml:"buttons,omitempty"`
+	ID       string                   `yaml:"id,omitempty"`
+	Name     string                   `yaml:"name,omitempty"`
+	Room     string                   `yaml:"room,omitempty"`
+	Remote   string                   `yaml:"remote,omitempty"`
+	Player   string                   `yaml:"player,omitempty"`
+	Volume   string                   `yaml:"volume,omitempty"`
+	Inputs   *InputsMapping           `yaml:"inputs,omitempty"`
+	Keys     map[string]ActionMapping `yaml:"keys,omitempty"`
+	Buttons  []ButtonMapping          `yaml:"buttons,omitempty"`
+	Readouts []string                 `yaml:"readouts,omitempty"` // sensors shown on the remote; default: throughput and power sensors of the set's device
 }
 
 // InputsMapping is `inputs: media_player.avr` (its source list, live) or a list of options, each an action and,

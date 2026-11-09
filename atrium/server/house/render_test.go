@@ -762,3 +762,49 @@ func TestRestoredEntitiesOnceHomeAssistantHasSettled(t *testing.T) {
 		t.Error("not running is not settled")
 	}
 }
+
+// A remote shows what its set's devices measure: throughput from the network integration's client device, which
+// shares the television's MAC address, and power from a plug on the television's own device. Diagnostics stay off it.
+func TestARemoteReadsItsSetsThroughputAndPower(t *testing.T) {
+	d := smallHome()
+	d.Devices = append(d.Devices,
+		map[string]any{"id": "tv-dev", "name": "Den TV", "area_id": "kitchen", "connections": []any{[]any{"mac", "AA:BB:CC:00:11:22"}}},
+		map[string]any{"id": "tv-client", "name": "den-tv", "connections": []any{[]any{"mac", "aa:bb:cc:00:11:22"}}},
+		map[string]any{"id": "other-client", "name": "laptop", "connections": []any{[]any{"mac", "aa:bb:cc:99:99:99"}}})
+	add := func(id, dev, platform, class, unit string) {
+		d.Entities = append(d.Entities, map[string]any{"entity_id": id, "device_id": dev, "platform": platform})
+		attrs := map[string]any{"friendly_name": pretty(id)}
+		if class != "" {
+			attrs["device_class"] = class
+		}
+		if unit != "" {
+			attrs["unit_of_measurement"] = unit
+		}
+		d.States[id] = &State{State: "off", Attributes: attrs}
+	}
+	add("media_player.den_tv", "tv-dev", "androidtv_remote", "tv", "")
+	add("remote.den_tv", "tv-dev", "androidtv_remote", "", "")
+	add("sensor.den_tv_power", "tv-dev", "tplink", "power", "W")
+	add("sensor.den_tv_tx", "tv-client", "unifi", "data_rate", "Mbit/s")
+	add("sensor.den_tv_rx", "tv-client", "unifi", "data_rate", "Mbit/s")
+	add("sensor.den_tv_uptime", "tv-client", "unifi", "duration", "s")
+	add("sensor.laptop_rx", "other-client", "unifi", "data_rate", "Mbit/s")
+	h, _ := Render(Mapping{}, d, Config{})
+	var den Remote
+	for _, r := range h.Remotes {
+		if r.ID == "remote.den_tv" {
+			den = r
+		}
+	}
+	eq(t, "readouts: received, sent, then power; not the uptime, not the laptop", den.Readouts, []string{"sensor.den_tv_rx", "sensor.den_tv_tx", "sensor.den_tv_power"})
+
+	// The file's own list replaces them, checked against Home Assistant; an empty list turns them off.
+	m := Mapping{Remotes: []RemoteMapping{{Remote: "remote.den_tv", Player: "media_player.den_tv", Readouts: []string{"sensor.den_tv_power", "sensor.nothing"}},
+		{ID: "den_again", Remote: "remote.den_tv", Player: "media_player.den_tv", Readouts: []string{}}}}
+	h, problems := Render(m, d, Config{})
+	eq(t, "the file's readouts", h.Remotes[0].Readouts, []string{"sensor.den_tv_power"})
+	eq(t, "a missing sensor is reported", problems, []string{"remote remote.den_tv: Home Assistant has no sensor.nothing"})
+	if len(h.Remotes[1].Readouts) != 0 {
+		t.Errorf("readouts: [] still shows %v", h.Remotes[1].Readouts)
+	}
+}

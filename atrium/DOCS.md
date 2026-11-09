@@ -132,6 +132,11 @@ still picture, so their tiles show "Live view" until one is opened.
   entity for the add-on to install it (`update.install`), as pressing Update in Home Assistant would; Atrium
   restarts and the app reconnects. The add-on asks the Supervisor for nothing more than before.
 - Nothing inside Home Assistant is changed: no custom integration, no change to its sign-in.
+- The app sends its diagnostics here and nowhere else (Settings → Diagnostics in the app turns it off): when it
+  launched and why, when it went to the background and came back, how long each connection took and why it
+  dropped, the device model and the iOS and app versions. Nothing about the house is in them. They appear in
+  this add-on's log as `app <login> (<device>) …` lines, and `GET /atrium/telemetry` lists the latest per device
+  for administrators.
 - The in-app preferences live in `/data/config.json` and can be read and written at `/atrium/config` (JSON, `GET`
   and `PUT`, administrators only): `name`, `tabs`, `floors`, `rooms` (by room id: `hidden`, `name`, `floor`,
   `order`, `thermostat`, `entities`) and `entities` (by entity id: `hidden`, `name`, `room`).

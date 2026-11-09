@@ -271,14 +271,78 @@ func (x *index) renderRemote(rm RemoteMapping, names map[string]string) (r Remot
 	}
 	id := firstOf(rm.ID, remote, player)
 	dev := firstOf(x.byID[remote].device, x.byID[player].device)
+	var readouts []string
+	if rm.Readouts != nil {
+		for _, s := range rm.Readouts { // the file's list, as given; [] turns the readouts off
+			if e := exists(s); e != "" {
+				readouts = append(readouts, e)
+			}
+		}
+	} else {
+		readouts = x.remoteReadouts(x.byID[remote].device, x.byID[player].device)
+	}
 	r = Remote{
 		ID:     id,
 		Name:   firstOf(rm.Name, names[id], names[player], remoteName(firstOf(x.deviceName[dev], x.byID[player].name, x.byID[remote].name)), pretty(id)),
 		Room:   firstOf(rm.Room, x.byID[remote].area, x.byID[player].area),
-		Player: player, Volume: volume, Keys: keys, Inputs: inputs, Buttons: buttons,
+		Player: player, Volume: volume, Keys: keys, Inputs: inputs, Buttons: buttons, Readouts: readouts,
 	}
 	if st := x.d.States[r.Volume]; st == nil || st.Attributes["volume_level"] == nil {
 		r.Volume = "" // no level to show: the keys still work
 	}
 	return r, problems, true
+}
+
+// remoteReadouts: the sensors worth a line on a remote, found on the set's own devices and on any device that shares
+// a MAC address with them (the UniFi Network integration's client device for the television, say): its throughput
+// (data_rate sensors, received before sent) and its power draw. Nothing else: a television's device may carry a
+// dozen diagnostic sensors nobody wants on a remote.
+func (x *index) remoteReadouts(devices ...string) []string {
+	macs := map[string]bool{}
+	on := map[string]bool{}
+	for _, d := range devices {
+		if d == "" {
+			continue
+		}
+		on[d] = true
+		if m := x.deviceMAC[d]; m != "" {
+			macs[m] = true
+		}
+	}
+	for d, m := range x.deviceMAC {
+		if macs[m] {
+			on[d] = true
+		}
+	}
+	var rate, power []string
+	for _, e := range x.ents {
+		if e.domain != "sensor" || e.restored || !on[e.device] {
+			continue
+		}
+		switch e.class {
+		case "data_rate":
+			rate = append(rate, e.id)
+		case "power":
+			power = append(power, e.id)
+		}
+	}
+	// Received before sent, then by name, so two sets read the same way.
+	sort.SliceStable(rate, func(i, j int) bool { return rateRank(x.byID[rate[i]]) < rateRank(x.byID[rate[j]]) })
+	sort.Strings(power)
+	out := append(rate, power...)
+	if len(out) > 4 {
+		out = out[:4]
+	}
+	return out
+}
+
+func rateRank(e ent) string {
+	n := strings.ToLower(e.name + " " + e.id)
+	switch {
+	case strings.Contains(n, "rx") || strings.Contains(n, "receiv") || strings.Contains(n, "down"):
+		return "0 " + n
+	case strings.Contains(n, "tx") || strings.Contains(n, "transmit") || strings.Contains(n, "up"):
+		return "1 " + n
+	}
+	return "2 " + n
 }
