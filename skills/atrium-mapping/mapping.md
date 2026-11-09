@@ -15,6 +15,9 @@ writes anything. Entities in no area go to an **Unassigned** room; rooms on no f
   **remotes** (each television's keys, inputs and buttons, mapped to Home Assistant). The add-on guesses each
   from what Home Assistant has (below); a section in the file replaces that guess wholesale, and an empty section
   (`security: {}`, `remotes: []`) turns it off.
+- **Version 3's sections** (below): water, air, appliances, vehicles, a pool, the day's calendars, drives,
+  reminders and schedules, seasonal lights, attention rules, panels. Nothing there is guessed; the file alone
+  fills them.
 
 The file lives in the add-on's own folder: `/addon_configs/df84f1fd_atrium/atrium.yaml` on the Home Assistant
 machine (the Terminal add-on sees that path; it is part of the add-on's backups). Only that folder is visible to the
@@ -174,6 +177,170 @@ the matrix, wakes the receiver, picks its HDMI input and sets the television to 
 Assistant script that does it, and point the input or button at the script. The file maps buttons; Home Assistant
 does the work, in its own language, where it can be tested from the Home Assistant UI and reused by automations
 and voice assistants. The same goes for a key an integration lacks: a script that sends the right sequence.
+
+## Version 3: the house beyond rooms
+
+`version: 3` adds sections for what a house has besides rooms, scenes and the five screens: water, air, appliances,
+thermostats that serve several rooms, what "needs attention" counts, seasonal lights, vehicles, a pool, the day's
+calendars, drives, reminders and schedules, and panels for the one-offs. Every section is optional (absent = that
+screen or card is not shown), every value is an entity id unless said otherwise, every action takes the forms under
+Actions, and the add-on resolves each item to names, units and states for the apps, which draw what they are given
+and decide nothing. A version 2 file still reads unchanged. Add-on 0.9.9 and later read version 3; an older add-on
+refuses the file as "version 3 is not known", so keep a version 2 file until the house's add-on is updated. A file
+with version 3 sections must say `version: 3`, or it is refused with that advice. As
+with every version, a key the contract does not have refuses the whole file (the parser is strict), so a typo is
+caught at once rather than silently ignored.
+
+Where each lands in the apps: `water` is a card on Energy, and its valve sits under Security's hazards; `air` is a
+readout in each room's header and a Home card while any band is poor; `thermostats` extend the rooms; `attention`
+feeds the alerts; `appliances` are tiles in their rooms and a notice when one finishes; `seasonal` is a Home chip
+inside its dates; `vehicles` is a tab of its own; `pool` a card on Energy (or Home, when there is no Energy tab);
+`day` is a tab of its own; `panels` are cards in their room, or on Home without one.
+
+```yaml
+version: 3
+
+home:
+  attention:                        # what "needs attention" counts, on top of the built-in alerts
+    battery_low: 20                 # percent: a battery sensor at or under this
+    offline: true                   # devices whose entities are unavailable
+    open_too_long:                  # minutes; a key left out keeps the built-in ten
+      garage: 10
+      doors: 10
+      car_doors: 5
+    include: [binary_sensor.freezer_door, binary_sensor.sump_alarm]   # on = needs attention
+
+energy:
+  water:                            # a card on Energy; replaces water_flow and water_today, which still read
+    flow: sensor.water_flow
+    today: sensor.water_today
+    week: sensor.water_week
+    month: sensor.water_month
+    pressure: sensor.water_pressure
+    temperature: sensor.water_temperature
+    valve: { entity: valve.main_water, openOnly: true }   # valve or switch; openOnly: the apps may open it (two taps) and never close it
+    mode: select.water_mode         # home / away / sleep: a select or input_select is settable, a sensor is shown
+    alerts: [binary_sensor.leak_laundry, binary_sensor.leak_kitchen]   # also hazards
+
+climate:
+  thermostats:                      # a thermostat that serves rooms it is not in
+    - entity: climate.hallway
+      serves: [family_room, living_room, dining_room]   # area ids; the room's own thermostat override still wins
+  air:                              # air quality per room; a readout in the room, a Home card while any band is poor
+    - room: kitchen
+      co2: sensor.kitchen_co2
+      temperature: sensor.kitchen_temperature
+      humidity: sensor.kitchen_humidity
+      voc: sensor.kitchen_voc
+      pm2_5: sensor.kitchen_pm25
+      aqi: sensor.kitchen_aqi
+      vape: binary_sensor.kitchen_vape
+  bands:                            # where fair ends and poor begins, per measure; defaults: co2 1000/1400, pm2_5 12/35, voc 220/660 (index), aqi 50/100
+    co2: { fair: 1000, poor: 1400 }
+    pm2_5: { fair: 12, poor: 35 }
+
+appliances:                         # tiles in their room (status, program, time left, door); a notice when one finishes
+  - name: Dishwasher
+    room: kitchen
+    status: sensor.dishwasher_status
+    program: sensor.dishwasher_program
+    phase: sensor.dishwasher_phase
+    remaining: sensor.dishwasher_remaining       # minutes, or a time, by the sensor's unit or device class
+    temperature: sensor.oven_temperature         # an oven's
+    target: sensor.oven_target_temperature
+    door: binary_sensor.dishwasher_door
+    finished: [finished, program_ended]          # status values that mean done; default: finished, program_ended, idle after running
+    actions: [{ name: Start, icon: play, action: button.dishwasher_start }]
+
+seasonal:                           # lights shown as a Home chip between the dates (month-day), as a scene would be
+  - name: Christmas tree
+    room: living_room
+    from: 11-15
+    until: 01-10
+    lights: [light.tree]
+
+vehicles:                           # a tab; one card per vehicle
+  - name: Car
+    tracker: device_tracker.car     # where it is (home, away, a zone)
+    battery: sensor.car_battery     # percent; or fuel: sensor.car_fuel
+    range: sensor.car_range
+    low: 20                         # percent (or the fuel sensor's unit) under which the card says so
+    charging: binary_sensor.car_charging
+    charger_power: sensor.car_charger_power
+    charge_limit: number.car_charge_limit
+    charge_switch: switch.car_charger
+    energy_added: sensor.car_energy_added
+    lock: lock.car
+    doors: [binary_sensor.car_door_fl, binary_sensor.car_door_fr]
+    windows: [binary_sensor.car_window_fl]
+    openings: [cover.car_frunk, cover.car_trunk, cover.car_charge_port]
+    climate: climate.car
+    inside_temperature: sensor.car_inside_temperature
+    tyres: [sensor.car_tyre_fl, sensor.car_tyre_fr, sensor.car_tyre_rl, sensor.car_tyre_rr]
+    warnings: [binary_sensor.car_tyre_warning, binary_sensor.car_service_due]
+    trip: { destination: sensor.car_destination, arrival: sensor.car_arrival, distance: sensor.car_distance }
+    awake: binary_sensor.car_awake  # readings are stale while a car sleeps; the card says "as of"
+    actions: [{ name: Flash, icon: lightbulb, action: button.car_flash }]
+    charger:                        # a wall charger of its own
+      status: sensor.wall_charger_status
+      power: sensor.wall_charger_power
+      session_energy: sensor.wall_charger_session
+
+pool:                               # a card: water, pump, spa, heaters, lights
+  temperature: sensor.pool_temperature
+  air_temperature: sensor.pool_air_temperature
+  pump: { running: binary_sensor.pool_pump, power: sensor.pool_pump_power, rpm: sensor.pool_pump_rpm, switch: switch.pool_pump }
+  spa: switch.spa
+  heaters: [climate.pool_heater, climate.spa_heater]
+  lights: [light.pool, light.spa]
+  readOnly: [switch.pool_pump, switch.spa, climate.pool_heater, climate.spa_heater]   # shown, never switched from a tap
+
+day:                                # a tab: today and the week
+  calendars: [calendar.family, calendar.school]
+  hide: [calendar.birthdays]
+  drives:                           # travel times, shown around their time on their days
+    - name: School run
+      sensor: sensor.travel_time_school   # minutes
+      days: weekdays                # weekdays | daily | a list of ISO weekdays (1 = Monday … 7 = Sunday)
+      at: "07:40"
+  reminders:                        # a duty, current in its window while not done
+    - title: Bins out
+      entity: input_boolean.bins_out      # on = done (the file's automation may reset it)
+      weekday: 3                    # ISO weekday
+      from: "18:00"
+      until: "08:00"                # earlier than from: the next morning
+      severity: attention           # info | attention
+      detail: sensor.bins_next      # a line under the title
+      pictures: [media-source://camera/front, media-source://camera/side]   # media-source ids, shown as stills
+      action: { name: Check now, action: script.bins_check }
+  schedules:                        # on/off and the times, each an input_datetime
+    - name: Shades
+      enabled: input_boolean.shades_schedule
+      times: { Open: input_datetime.shades_open, Close: input_datetime.shades_close }
+
+panels:                             # the escape hatch: a card of rows and actions, in its room or on Home
+  - id: coffee
+    name: Coffee
+    icon: cup.and.saucer
+    room: kitchen
+    rows:
+      - { entity: sensor.beans_left, name: Beans }
+      - { entity: sensor.grinds_today }
+      - { entity: switch.brewer }   # a switch, light, input_boolean or lock row is a toggle
+    actions: [{ name: Brew, icon: cup.and.saucer, action: script.brew }]
+```
+
+### What the apps get
+
+The add-on emits each section under the same key in `house.json`, resolved: entity ids kept, names from `names`
+or Home Assistant, units from the sensors, actions as `{domain, service, entity, data}`, `openOnly` and `readOnly`
+as flags on the items they name. Items Home Assistant does not have are dropped and reported, as everywhere.
+`water` also fills `energy.waterFlow` and `energy.waterToday` so an older app keeps its two readouts; the valve
+appears again under `security.valves` with its flag (`water.modeSettable` says whether the mode is a select); `climate.thermostats` adds the thermostat to every room
+it serves (`rooms[].thermostat` when the room has none of its own); `appliances[]` carry their room id; `air[]` their
+room id and the bands that apply; `day.drives[].days` arrive as a list of ISO weekdays; `seasonal[]` carry a boolean
+`active` for today. Nothing in these sections is guessed by the add-on: they come from the file alone, and `atrium_auto`
+prints them empty.
 
 ## Energy: solar, battery, grid and home
 

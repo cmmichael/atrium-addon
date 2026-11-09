@@ -572,6 +572,8 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 			h.Names[id] = n
 		}
 	}
+	// Version 3: the house beyond rooms, from the file alone.
+	renderV3(m, &h, d, exists, func(id string) string { return firstOf(h.Names[id], m.Names[id], haName(id)) }, problem, time.Now())
 	// Widgets: the file's, else Scenes, Home and one per room. Last, since they point at what is above.
 	widgets := m.Widgets
 	if widgets == nil {

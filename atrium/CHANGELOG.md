@@ -3,6 +3,14 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.9
+
+- The layout file's version 3 (`docs/mapping.md`, "Version 3"): the house beyond rooms. New sections, all
+  optional and none guessed: what needs attention, the water card with a shut-off the apps may only open, air
+  quality per room with bands, thermostats that serve several rooms, appliances, seasonal lights, vehicles, the
+  pool, the day (calendars, drives, reminders, schedules) and panels for the one-offs. The add-on resolves them
+  into `house.json`; the apps gain the screens in their next releases. A version 2 file reads unchanged.
+
 ## 0.9.8
 
 - Widgets: `house.json` now carries `widgets`, what the app's Home Screen and Lock Screen widgets show. Without

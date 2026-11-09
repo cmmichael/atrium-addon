@@ -88,6 +88,15 @@ keep other restored entities, shown unavailable, since a device that is off for 
 The set-up page lists the entities that are stale (restored, though their integration is loaded) and where to
 delete them in Home Assistant: **Settings → Devices & services → Entities**. Atrium never deletes anything.
 
+## Beyond rooms: version 3 of the layout
+
+A `version: 3` file (add-on 0.9.9 and later) can also describe what a house has besides rooms and scenes: the
+water meter and its shut-off, air quality per room, appliances, thermostats that serve several rooms, what counts
+as needing attention, seasonal lights, vehicles, a pool, the day's calendars, drives, reminders and schedules, and
+panels for anything else. None of it is guessed; the file names every entity, the add-on checks each against Home
+Assistant and the apps draw what they are given. The shapes are in the add-on repository's `docs/mapping.md`
+("Version 3"); the atrium-mapping skill writes them.
+
 ## Televisions
 
 Every television Home Assistant knows (Samsung, Google TV and Android TV, Roku, Apple TV, Sony, LG) gets a

@@ -32,6 +32,20 @@ type Mapping struct {
 	Remotes []RemoteMapping `yaml:"remotes,omitempty"`
 	// Widgets: absent, Scenes, Home and one per room; given, exactly these.
 	Widgets []WidgetMapping `yaml:"widgets,omitempty"`
+	// Version 3: the house beyond rooms (v3.go). Nothing guessed; the file alone fills them.
+	Climate    *ClimateMapping    `yaml:"climate,omitempty"`
+	Appliances []ApplianceMapping `yaml:"appliances,omitempty"`
+	Seasonal   []SeasonalMapping  `yaml:"seasonal,omitempty"`
+	Vehicles   []VehicleMapping   `yaml:"vehicles,omitempty"`
+	Pool       *PoolMapping       `yaml:"pool,omitempty"`
+	Day        *DayMapping        `yaml:"day,omitempty"`
+	Panels     []PanelMapping     `yaml:"panels,omitempty"`
+}
+
+// v3 says whether the file uses any version 3 section.
+func (m Mapping) v3() bool {
+	return m.Climate != nil || m.Appliances != nil || m.Seasonal != nil || m.Vehicles != nil || m.Pool != nil || m.Day != nil || m.Panels != nil ||
+		m.Home.Attention != nil || (m.Energy != nil && m.Energy.Water != nil)
 }
 
 // WidgetMapping is one Home Screen widget in the file: a name and the items it shows, in order. The phone fits
@@ -336,10 +350,12 @@ type HomeMapping struct {
 	IndoorTemperature  string   `yaml:"indoor_temperature,omitempty"`
 	Alarm              string   `yaml:"alarm,omitempty"`
 	People             []string `yaml:"people,omitempty"`
+	// Version 3: what "needs attention" counts.
+	Attention *AttentionMapping `yaml:"attention,omitempty"`
 }
 
 func (h HomeMapping) set() bool {
-	return h.Weather != "" || h.OutdoorTemperature != "" || h.IndoorTemperature != "" || h.Alarm != "" || len(h.People) > 0
+	return h.Weather != "" || h.OutdoorTemperature != "" || h.IndoorTemperature != "" || h.Alarm != "" || len(h.People) > 0 || h.Attention != nil
 }
 
 type SecurityMapping struct {
@@ -374,6 +390,8 @@ type EnergyMapping struct {
 	Consumers    []string `yaml:"consumers,omitempty"`
 	WaterFlow    string   `yaml:"water_flow,omitempty"`
 	WaterToday   string   `yaml:"water_today,omitempty"`
+	// Version 3: the water card, with the valve.
+	Water *WaterMapping `yaml:"water,omitempty"`
 }
 
 // PowerRef is a power sensor in the file: an entity id, or `{entity: sensor.x, invert: true}` for a sensor whose
@@ -437,12 +455,12 @@ type MusicMapping struct {
 // Empty says whether the file adds nothing: no overrides and no custom screen.
 func (m Mapping) Empty() bool {
 	return m.Name == "" && len(m.Floors) == 0 && len(m.Rooms) == 0 && len(m.Hide) == 0 && len(m.Scenes) == 0 &&
-		!m.Home.set() && m.Security == nil && m.Energy == nil && m.Music == nil && len(m.Names) == 0 && m.Remotes == nil && m.Widgets == nil
+		!m.Home.set() && m.Security == nil && m.Energy == nil && m.Music == nil && len(m.Names) == 0 && m.Remotes == nil && m.Widgets == nil && !m.v3()
 }
 
 // Custom says whether the file has any of the screens that only it can fill.
 func (m Mapping) Custom() bool {
-	return m.Home.set() || m.Security != nil || m.Energy != nil || m.Music != nil || m.Remotes != nil || m.Widgets != nil
+	return m.Home.set() || m.Security != nil || m.Energy != nil || m.Music != nil || m.Remotes != nil || m.Widgets != nil || m.v3()
 }
 
 // hides says whether a house-wide hide rule covers this entity: its id, a glob over ids, or its integration.
@@ -474,8 +492,11 @@ func ParseMapping(data []byte) (Mapping, error) {
 	if err := dec.Decode(&m); err != nil && !errors.Is(err, io.EOF) { // EOF: an empty file
 		return m, err
 	}
-	if m.Version != 0 && m.Version != 1 && m.Version != 2 {
-		return m, fmt.Errorf("version %d is not known (this add-on knows versions 1 and 2)", m.Version)
+	if m.Version != 0 && m.Version != 1 && m.Version != 2 && m.Version != 3 {
+		return m, fmt.Errorf("version %d is not known (this add-on knows versions 1, 2 and 3)", m.Version)
+	}
+	if m.Version < 3 && m.v3() {
+		return m, fmt.Errorf("the file has version 3 sections (climate, appliances, vehicles, pool, day, panels, seasonal, attention, water) but says version %d: write version: 3", m.Version)
 	}
 	seen := map[string]bool{}
 	for i, r := range m.Rooms {

@@ -41,6 +41,8 @@ type Summary struct {
 	IndoorTemp  string   `json:"indoorTemp,omitempty"`
 	Alarm       string   `json:"alarm,omitempty"`
 	People      []string `json:"people"`
+	// Version 3: what "needs attention" counts, beyond the built-in alerts.
+	Attention *Attention `json:"attention,omitempty"`
 }
 
 // Security is what the Security screen shows.
@@ -56,6 +58,8 @@ type Security struct {
 	Streams map[string]string `json:"streams"`
 	// UniFi Access-style doors: an unlock button with the door's contact. Shown as locks.
 	Doors []Door `json:"doors"`
+	// Version 3: the water shut-off, with its openOnly flag (the apps may open it, never close it from a tap).
+	Valves []Valve `json:"valves,omitempty"`
 }
 
 type MusicAssistant struct {
@@ -131,6 +135,8 @@ type Energy struct {
 	Consumers    []string `json:"consumers"`
 	WaterFlow    string   `json:"waterFlow,omitempty"`
 	WaterToday   string   `json:"waterToday,omitempty"`
+	// Version 3: the water card.
+	Water *Water `json:"water,omitempty"`
 }
 
 // House is the layout.
@@ -157,6 +163,14 @@ type House struct {
 	Remotes []Remote `json:"remotes,omitempty"`
 	// Home Screen widgets: the file's, or Scenes, Home and one per room. The phone fits the items to the size.
 	Widgets []Widget `json:"widgets,omitempty"`
+	// Version 3 of the file: the house beyond rooms. Each absent when the file has no such section.
+	Climate    *Climate    `json:"climate,omitempty"`
+	Appliances []Appliance `json:"appliances,omitempty"`
+	Seasonal   []Seasonal  `json:"seasonal,omitempty"`
+	Vehicles   []Vehicle   `json:"vehicles,omitempty"`
+	Pool       *Pool       `json:"pool,omitempty"`
+	Day        *Day        `json:"day,omitempty"`
+	Panels     []Panel     `json:"panels,omitempty"`
 }
 
 // Widget is one choice in the phone's widget gallery: a named list of items, every one already resolved. The
