@@ -17,6 +17,7 @@ func TestVersionThreeSectionsAreResolved(t *testing.T) {
 	add("sensor.water_today", "71", `{"unit_of_measurement":"gal"}`)
 	add("sensor.water_last_day", "2026-11-05T23:00:00+00:00", `{"device_class":"timestamp"}`)
 	add("switch.water_valve", "on", `{}`)
+	add("sensor.bill_net", "1230", `{"unit_of_measurement":"kWh","last_reset":"2026-10-27T07:00:00+00:00"}`)
 	add("sensor.water_mode", "home", `{}`)
 	add("binary_sensor.leak_laundry", "off", `{"device_class":"moisture"}`)
 	add("sensor.kitchen_co2", "650", `{"unit_of_measurement":"ppm"}`)
@@ -50,6 +51,14 @@ energy:
     valve: { entity: switch.water_valve, openOnly: true }
     mode: sensor.water_mode
     alerts: [binary_sensor.leak_laundry]
+  tariff:
+    net: sensor.bill_net
+    period_days: 60
+    period_start: "2026-08-27"
+    tiers: [{ up_to: 700, rate: 0.26304 }, { up_to: 2100, rate: 0.32164 }, { rate: 0.40866 }]
+    fixed: 45.40
+    tax: 0.10
+    estimate: true
 climate:
   thermostats:
     - { entity: climate.hall, serves: [kitchen, shed, attic] }
@@ -96,6 +105,7 @@ routines:
 	eq(t, "water", *h.Energy.Water, Water{Flow: "sensor.water_flow", Today: "sensor.water_today", Date: "sensor.water_last_day", Valve: &Valve{Entity: "switch.water_valve", OpenOnly: true}, Mode: "sensor.water_mode", Alerts: []string{"binary_sensor.leak_laundry"}})
 	eq(t, "the old readouts are filled from the card", []string{h.Energy.WaterFlow, h.Energy.WaterToday, h.Energy.WaterDate}, []string{"sensor.water_flow", "sensor.water_today", "sensor.water_last_day"})
 	eq(t, "the valve is under security", h.Security.Valves, []Valve{{Entity: "switch.water_valve", OpenOnly: true}})
+	eq(t, "tariff", *h.Energy.Tariff, Tariff{Net: "sensor.bill_net", PeriodDays: 60, PeriodStart: "2026-08-27", Tiers: []Tier{{700, 0.26304}, {2100, 0.32164}, {0, 0.40866}}, Fixed: 45.40, Tax: 0.10, Currency: "$", Estimate: true})
 	eq(t, "thermostats", h.Climate.Thermostats, []Thermostat{{Entity: "climate.hall", Serves: []string{"kitchen", "shed"}},
 		{Entity: "climate.downstairs", Serves: []string{}, Action: "setpoint"}, {Entity: "climate.fridge", Serves: []string{}}})
 	eq(t, "bands", h.Climate.Bands["co2"], Band{900, 1300})
@@ -187,5 +197,36 @@ func TestSeasonsWrapTheYear(t *testing.T) {
 	}
 	if monthDay("13-01") != 0 || monthDay("11-15") != 1115 || monthDay("x") != 0 {
 		t.Error("monthDay")
+	}
+}
+
+// A tariff with a bad tier order, a missing rate or a bad date is reported and left out; a flat one (a single tier
+// with just a rate) is fine, with the defaults filled.
+func TestTariffIsChecked(t *testing.T) {
+	d := smallHome()
+	d.Entities = append(d.Entities, map[string]any{"entity_id": "sensor.bill_net", "platform": "demo"})
+	d.States["sensor.bill_net"] = &State{State: "12", Attributes: map[string]any{}}
+	render := func(yaml string) (*Tariff, []string) {
+		m, err := ParseMapping([]byte("version: 3\nenergy:\n  tariff:\n    net: sensor.bill_net\n" + yaml))
+		if err != nil {
+			t.Fatal(err)
+		}
+		h, problems := Render(m, d, Config{})
+		return h.Energy.Tariff, problems
+	}
+	if tf, p := render("    tiers: [{ rate: 0.31 }]\n"); tf == nil || tf.PeriodDays != 30 || tf.Currency != "$" || len(p) != 0 {
+		t.Errorf("flat: %+v %v", tf, p)
+	}
+	if tf, p := render("    tiers: [{ up_to: 700, rate: 0.2 }, { up_to: 500, rate: 0.3 }, { rate: 0.4 }]\n"); tf != nil || len(p) != 1 || !strings.Contains(p[0], "tier 2") {
+		t.Errorf("order: %+v %v", tf, p)
+	}
+	if tf, p := render("    tiers: [{ up_to: 700 }, { rate: 0.4 }]\n"); tf != nil || len(p) != 1 || !strings.Contains(p[0], "no rate") {
+		t.Errorf("rate: %+v %v", tf, p)
+	}
+	if tf, p := render("    tiers: [{ rate: 0.4 }]\n    period_start: 27/08/2026\n"); tf != nil || len(p) != 1 || !strings.Contains(p[0], "YYYY-MM-DD") {
+		t.Errorf("date: %+v %v", tf, p)
+	}
+	if _, err := ParseMapping([]byte("version: 2\nenergy:\n  tariff:\n    net: sensor.bill_net\n    tiers: [{ rate: 0.4 }]\n")); err == nil || !strings.Contains(err.Error(), "version: 3") {
+		t.Errorf("v2: %v", err)
 	}
 }

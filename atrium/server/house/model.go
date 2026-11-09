@@ -149,6 +149,26 @@ type Energy struct {
 	WaterDate string `json:"waterDate,omitempty"`
 	// Version 3: the water card.
 	Water *Water `json:"water,omitempty"`
+	// Version 3: the electricity tariff; the apps work out the bill so far and the cost now from the net meter.
+	Tariff *Tariff `json:"tariff,omitempty"`
+}
+
+type Tariff struct {
+	Net         string  `json:"net"`
+	Delivered   string  `json:"delivered,omitempty"`
+	Received    string  `json:"received,omitempty"`
+	PeriodDays  int     `json:"periodDays"`
+	PeriodStart string  `json:"periodStart,omitempty"`
+	Tiers       []Tier  `json:"tiers"`
+	Fixed       float64 `json:"fixed,omitempty"`
+	Tax         float64 `json:"tax,omitempty"`
+	Currency    string  `json:"currency"`
+	Estimate    bool    `json:"estimate,omitempty"`
+}
+
+type Tier struct {
+	UpTo float64 `json:"upTo,omitempty"` // cumulative kWh the tier ends at; 0 on the last: the rest
+	Rate float64 `json:"rate"`
 }
 
 // House is the layout.

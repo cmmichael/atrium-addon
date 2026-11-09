@@ -46,7 +46,7 @@ type Mapping struct {
 // v3 says whether the file uses any version 3 section.
 func (m Mapping) v3() bool {
 	return m.Climate != nil || m.Appliances != nil || m.Seasonal != nil || m.Vehicles != nil || m.Pool != nil || m.Day != nil || m.Panels != nil ||
-		m.Routines != nil || m.Home.Attention != nil || (m.Energy != nil && m.Energy.Water != nil)
+		m.Routines != nil || m.Home.Attention != nil || (m.Energy != nil && (m.Energy.Water != nil || m.Energy.Tariff != nil))
 }
 
 // WidgetMapping is one Home Screen widget in the file: a name and the items it shows, in order. The phone fits
@@ -396,6 +396,31 @@ type EnergyMapping struct {
 	WaterToday   string   `yaml:"water_today,omitempty"`
 	// Version 3: the water card, with the valve.
 	Water *WaterMapping `yaml:"water,omitempty"`
+	// Version 3: the electricity tariff, for the bill so far and the cost of running something now.
+	Tariff *TariffMapping `yaml:"tariff,omitempty"`
+}
+
+// TariffMapping is the electricity tariff: tiers of a rate per kWh over the billing period, a fixed charge and a
+// tax, and the meter that counts the period's kWh. `net` is a sensor in kWh since the period began (a
+// utility_meter on what the grid delivered, less what it received where the utility nets them), reset by its
+// cycle; its last_reset attribute, when it has one, says when the period began, else `period_start` steps forward
+// by `period_days`. Tiers run in order: each `up_to` is the cumulative kWh the tier ends at; the last has none.
+type TariffMapping struct {
+	Net         string        `yaml:"net"`
+	Delivered   string        `yaml:"delivered,omitempty"`
+	Received    string        `yaml:"received,omitempty"`
+	PeriodDays  int           `yaml:"period_days,omitempty"`  // default 30
+	PeriodStart string        `yaml:"period_start,omitempty"` // YYYY-MM-DD, a day a period began
+	Tiers       []TierMapping `yaml:"tiers"`
+	Fixed       float64       `yaml:"fixed,omitempty"`    // per period, before tax
+	Tax         float64       `yaml:"tax,omitempty"`      // a fraction of the whole: 0.10 for ten percent
+	Currency    string        `yaml:"currency,omitempty"` // the sign, default $
+	Estimate    bool          `yaml:"estimate,omitempty"` // the meter is not the utility's: the apps say "estimate"
+}
+
+type TierMapping struct {
+	UpTo float64 `yaml:"up_to,omitempty"`
+	Rate float64 `yaml:"rate"`
 }
 
 // PowerRef is a power sensor in the file: an entity id, or `{entity: sensor.x, invert: true}` for a sensor whose
@@ -500,7 +525,7 @@ func ParseMapping(data []byte) (Mapping, error) {
 		return m, fmt.Errorf("version %d is not known (this add-on knows versions 1, 2 and 3)", m.Version)
 	}
 	if m.Version < 3 && m.v3() {
-		return m, fmt.Errorf("the file has version 3 sections (climate, appliances, vehicles, pool, day, panels, seasonal, attention, water) but says version %d: write version: 3", m.Version)
+		return m, fmt.Errorf("the file has version 3 sections (climate, appliances, vehicles, pool, day, panels, seasonal, attention, water, tariff) but says version %d: write version: 3", m.Version)
 	}
 	seen := map[string]bool{}
 	for i, r := range m.Rooms {

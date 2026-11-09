@@ -3,6 +3,12 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.22
+
+- `energy.tariff`: the electricity tariff (tiers of a rate per kWh over the billing period, a fixed charge, a tax)
+  and the meter that counts the period's net kWh, so the apps show the bill so far, the tier the house is in and
+  how far the next one is, what running the house costs per hour right now, and where the bill is heading.
+
 ## 0.9.21
 
 - `security.doors[].access`: the door's access event (UniFi Access), found on the button's device or named in the

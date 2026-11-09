@@ -524,6 +524,49 @@ func renderV3(m Mapping, h *House, d Dump, exists func(where, id string) string,
 		h.Energy.WaterDate = w.Date
 	}
 
+	if m.Energy != nil && m.Energy.Tariff != nil {
+		tm := m.Energy.Tariff
+		if net := exists("tariff", tm.Net); net != "" {
+			t := &Tariff{Net: net, Delivered: exists("tariff", tm.Delivered), Received: exists("tariff", tm.Received), PeriodDays: tm.PeriodDays, PeriodStart: tm.PeriodStart,
+				Fixed: tm.Fixed, Tax: tm.Tax, Currency: tm.Currency, Estimate: tm.Estimate, Tiers: []Tier{}}
+			if t.PeriodDays <= 0 {
+				t.PeriodDays = 30
+			}
+			if t.Currency == "" {
+				t.Currency = "$"
+			}
+			ok := true
+			if len(tm.Tiers) == 0 {
+				problem("tariff: no tiers; one with just a rate is a flat tariff")
+				ok = false
+			}
+			for i, tier := range tm.Tiers {
+				if tier.Rate <= 0 {
+					problem("tariff: tier %d has no rate", i+1)
+					ok = false
+				}
+				last := i == len(tm.Tiers)-1
+				if !last && (tier.UpTo <= 0 || (i > 0 && tier.UpTo <= tm.Tiers[i-1].UpTo)) {
+					problem("tariff: tier %d needs an up_to above the tier before it (only the last tier has none)", i+1)
+					ok = false
+				}
+				if last {
+					tier.UpTo = 0
+				}
+				t.Tiers = append(t.Tiers, Tier{UpTo: tier.UpTo, Rate: tier.Rate})
+			}
+			if tm.PeriodStart != "" {
+				if _, err := time.Parse("2006-01-02", tm.PeriodStart); err != nil {
+					problem("tariff: period_start %q is not a date (YYYY-MM-DD)", tm.PeriodStart)
+					ok = false
+				}
+			}
+			if ok {
+				h.Energy.Tariff = t
+			}
+		}
+	}
+
 	if c := m.Climate; c != nil {
 		cl := &Climate{Bands: map[string]Band{}}
 		for k, b := range defaultBands {

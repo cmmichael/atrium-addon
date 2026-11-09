@@ -193,7 +193,7 @@ with version 3 sections must say `version: 3`, or it is refused with that advice
 with every version, a key the contract does not have refuses the whole file (the parser is strict), so a typo is
 caught at once rather than silently ignored.
 
-Where each lands in the apps: `water` is a card on Energy, and its valve sits under Security's hazards; `air` is a
+Where each lands in the apps: `water` is a card on Energy, and its valve sits under Security's hazards; `tariff` is a card on Energy (the apps do the tier arithmetic from the net meter: the bill so far, the tier and the kWh to the next, the cost per hour of what runs now from load less solar at the tier's rate with tax, and the bill the period is heading for at this pace); `air` is a
 readout in each room's header and a Home card while any band is poor; `thermostats` extend the rooms; `attention`
 feeds the alerts; `appliances` are tiles in their rooms and a notice when one finishes; `seasonal` is a Home chip
 inside its dates; `vehicles` is a tab of its own; `pool` a card on Energy (or Home, when there is no Energy tab);
@@ -224,6 +224,20 @@ energy:
     valve: { entity: valve.main_water, openOnly: true }   # valve or switch; openOnly: the apps may open it (two taps) and never close it
     mode: select.water_mode         # home / away / sleep: a select or input_select is settable, a sensor is shown
     alerts: [binary_sensor.leak_laundry, binary_sensor.leak_kitchen]   # also hazards
+  tariff:                           # a card on Energy: the bill so far, the tier, the cost per hour now
+    net: sensor.bill_net_energy     # kWh since the period began: a utility_meter on what the grid delivered (less what it received, where the utility nets them); its last_reset says when the period began
+    period_days: 60                 # the bill's length; default 30
+    period_start: "2026-08-27"      # a day a period began, when `net` has no last_reset; later periods step from it
+    tiers:                          # in order; up_to is the cumulative kWh the tier ends at; the last tier has none
+      - { up_to: 700, rate: 0.26304 }
+      - { up_to: 2100, rate: 0.32164 }
+      - { rate: 0.40866 }
+    fixed: 45.40                    # per period, before tax; a flat tariff is one tier with just a rate
+    tax: 0.10                       # a fraction of the whole
+    currency: "$"                   # the sign; default $
+    estimate: true                  # the meter is the house's own, not the utility's: the apps say "estimate"
+    delivered: sensor.bill_delivered   # optional, shown beside the net figure
+    received: sensor.bill_received
 
 climate:
   thermostats:                      # a thermostat that serves rooms it is not in, or whose "heating" needs checking

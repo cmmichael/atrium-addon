@@ -160,7 +160,7 @@ Then:
 
 ## Rules
 
-- **Version 3** (`docs/mapping.md`, "Version 3": water, air, appliances, vehicles, pool, day, panels…) needs
+- **Version 3** (`docs/mapping.md`, "Version 3": water, tariff, air, appliances, vehicles, pool, day, panels…) needs
   add-on 0.9.9 or later; an older add-on refuses a `version: 3` file. Write `version: 2` until the house's add-on
   reads 3, then add the sections.
 - **Widgets.** Without `widgets:` the phone offers Scenes, Home and one widget per room. Write `widgets:` when
