@@ -223,8 +223,8 @@ def build(d):
         ents[eid] = e
     order = sorted(ents.values(), key=lambda e: e.id)
     # Restored entities, once Home Assistant has run SETTLE_AFTER (the add-on's rule, house/auto.go): a ghost is a
-    # restored entity with a live twin (same domain, same name or another device of the same name): the device came
-    # back under a new id. Only an entity whose integration is loaded can be a ghost (an offline hub's entities are
+    # restored entity with a live twin (same domain, same area when both are known, same name or another device of
+    # the same name): the device came back under a new id. Two plain "Lamp"s in different rooms are two lamps. Only an entity whose integration is loaded can be a ghost (an offline hub's entities are
     # all restored, and say nothing). Ghosts are left out; other restored entities stay in rooms, but are never a
     # guess for a slot that takes one entity. Before settling nothing is decided from them.
     settled = running_for(d) >= SETTLE_AFTER
@@ -233,11 +233,13 @@ def build(d):
     entry_of = {e['entity_id']: e.get('config_entry_id') for e in d['entities'] if e.get('entity_id')}
     may_ghost = lambda e: loaded is None or not entry_of.get(e.id) or entry_of[e.id] in loaded
     device_name = {dev['id']: (dev.get('name_by_user') or dev.get('name') or '') for dev in d['devices'] if dev.get('id')}
-    live_names = {(e.domain, e.name.lower()) for e in order if not e.restored}
-    live_devices = {(e.domain, device_name.get(e.device, '').lower(), e.device) for e in order if not e.restored and device_name.get(e.device)}
-    other_device_live = lambda e: any(dom == e.domain and name == device_name[e.device].lower() and dev != e.device for dom, name, dev in live_devices)
-    ghosts = {e.id for e in order if settled and e.restored and may_ghost(e) and
-              ((e.domain, e.name.lower()) in live_names or (device_name.get(e.device) and other_device_live(e)))}
+    same_area = lambda a, b: not a or not b or a == b
+    live_names = {(e.domain, e.name.lower(), e.area) for e in order if not e.restored}
+    live_devices = {(e.domain, device_name.get(e.device, '').lower(), e.device, e.area) for e in order if not e.restored and device_name.get(e.device)}
+    name_live = lambda e: any(dom == e.domain and name == e.name.lower() and same_area(e.area, area) for dom, name, area in live_names)
+    other_device_live = lambda e: any(dom == e.domain and name == device_name[e.device].lower() and dev != e.device and same_area(e.area, area)
+                                      for dom, name, dev, area in live_devices)
+    ghosts = {e.id for e in order if settled and e.restored and may_ghost(e) and (name_live(e) or (device_name.get(e.device) and other_device_live(e)))}
     order = [e for e in order if e.id not in ghosts]
     pickable = lambda e: not (settled and e.restored)
     by_domain = lambda dom: [e for e in order if e.domain == dom]

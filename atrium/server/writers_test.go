@@ -31,6 +31,7 @@ func newFakeSupervisor(t *testing.T) *fakeSupervisor {
 		"core_ssh":            {Name: "Terminal & SSH", Slug: "core_ssh", Repository: "core", State: "started", Version: "9.0"},
 		"11111111_first":      {Name: "Another app", Slug: "11111111_first", Repository: "11111111", State: "stopped", Version: "0.1"},
 		"df84f1fd_atrium":     {Name: "Atrium", Slug: "df84f1fd_atrium", Repository: "df84f1fd", State: "started", Version: version},
+		"22222222_zz":         {Name: "Zz alias", Slug: "core_ssh", Repository: "22222222", State: "started", Version: "1"}, // answers for another slug
 	}
 	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer addon-token" {
@@ -108,7 +109,7 @@ func TestAnAdministratorGrantsWritersFromTheSetupPage(t *testing.T) {
 	w := ingress("GET", "/atrium/addons", "", admin...)
 	var listed struct{ Addons []AddonInfo }
 	json.Unmarshal(w.Body.Bytes(), &listed)
-	if w.Code != 200 || len(listed.Addons) != 4 || listed.Addons[0].Name != "Another app" || listed.Addons[1].Slug != "df84f1fd_atrium" || listed.Addons[2].Repository != "d7e97e69" {
+	if w.Code != 200 || len(listed.Addons) != 5 || listed.Addons[0].Name != "Another app" || listed.Addons[1].Slug != "df84f1fd_atrium" || listed.Addons[2].Repository != "d7e97e69" {
 		t.Errorf("addons: %d %s", w.Code, w.Body.String())
 	}
 	// A slug typed in is checked with the Supervisor.
@@ -166,6 +167,9 @@ func TestAnAdministratorGrantsWritersFromTheSetupPage(t *testing.T) {
 	}
 	if w := ingress("POST", "/atrium/writers", `{"slug":"nope_nothing"}`, admin...); w.Code != 502 || !strings.Contains(w.Body.String(), "404") {
 		t.Errorf("an unknown slug: %d %s", w.Code, w.Body.String())
+	}
+	if w := ingress("POST", "/atrium/writers", `{"slug":"22222222_zz"}`, admin...); w.Code != 502 || !strings.Contains(w.Body.String(), "answered for core_ssh, not 22222222_zz") {
+		t.Errorf("a slug the Supervisor answers differently for is named as such: %d %s", w.Code, w.Body.String())
 	}
 	for _, bad := range []string{`{}`, `{"slug":"../self"}`, `{"slug":"a b"}`, `not json`} {
 		if w := ingress("POST", "/atrium/writers", bad, admin...); w.Code != 400 {

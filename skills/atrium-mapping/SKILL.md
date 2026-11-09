@@ -80,7 +80,7 @@ page or the app for the picture) and add overrides only where they are wrong. Ch
 - **Restored entities.** `atrium_home` marks an entity `restored` when Home Assistant registers it but its
   integration has not provided it since Home Assistant started (its state is unavailable). Once Home Assistant has
   run ten minutes those are devices that are gone or renamed, and the draft already leaves them out of its guesses
-  and skips ones with a live twin of the same name; do not name one in the file unless the device is expected
+  and skips ones with a live twin of the same name in the same area; do not name one in the file unless the device is expected
   back (the add-on accepts it and reports it as a problem, and the app shows it unavailable). The set-up page
   lists the stale ones for the owner to delete in Home Assistant; never delete, rename or recreate entities
   yourself to tidy them.

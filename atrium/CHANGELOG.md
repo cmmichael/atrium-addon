@@ -3,6 +3,21 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.6
+
+- Review follow-ups. Two televisions with the same default device name in different rooms are two remotes, not
+  one. A remote button or input whose `action` was left out is reported as that. On the set-up page, a slug the
+  Supervisor answers differently for is named as such instead of "Atrium does not list itself".
+- Web app: keys typed into the search box while a remote is open no longer go to the television; a remote action
+  that fails puts the tile back the way it was; and when two energy terms are unknown the Energy flow says
+  nothing rather than drawing flows from zeros. The iOS app gets the last two from its next release.
+||||||| 159ffc5
+## 0.9.5
+
+- A device that is gone is only replaced by a live one in the same room: two entities plainly named "Lamp" in
+  different rooms are two lamps, and the one unplugged for the season stays in its room, shown unavailable. A
+  restored entity with no room is still matched house-wide. The atrium-mapping draft follows the same rule.
+
 ## 0.9.4
 
 - Devices that are gone: ten minutes after Home Assistant starts, an entity it still registers but no longer

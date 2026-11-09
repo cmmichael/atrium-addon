@@ -82,7 +82,8 @@ preferences are kept separately and survive a new layout.
 **Devices that are gone.** Home Assistant keeps an entity registered after its device is removed or renamed, and
 at start writes it an unavailable placeholder (`restored`). Ten minutes after Home Assistant starts, Atrium stops
 choosing such entities by itself: never as the doorbell, a thermostat, the solar sensor or a room's readout, and
-not at all when a live entity of the same name (or on a device of the same name) has taken its place. Rooms
+not at all when a live entity of the same name (or on a device of the same name) in the same room has taken its
+place. Rooms
 keep other restored entities, shown unavailable, since a device that is off for the season is still the room's.
 The set-up page lists the entities that are stale (restored, though their integration is loaded) and where to
 delete them in Home Assistant: **Settings → Devices & services → Entities**. Atrium never deletes anything.

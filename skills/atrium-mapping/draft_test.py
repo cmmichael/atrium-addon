@@ -105,6 +105,23 @@ class RestoredEntities(unittest.TestCase):
         self.assertIn('camera.garage', out['security']['cameras'], 'a restored camera with no twin stays listed')
         self.assertEqual(out['home']['weather'], 'weather.home')
 
+    def test_a_twin_in_another_room_is_another_device(self):
+        d = self.house(ago=1200)
+        d['areas'].append({'area_id': 'bed', 'name': 'Bedroom'})
+        d['devices'] += [{'id': 'plug-old', 'name': 'Smart Plug'}, {'id': 'plug-new', 'name': 'Smart Plug'}]
+        d['entities'] += [{'entity_id': 'light.kitchen_lamp', 'area_id': 'kitchen'}, {'entity_id': 'light.bed_lamp', 'area_id': 'bed'},
+                          {'entity_id': 'switch.plug_old', 'area_id': 'kitchen', 'device_id': 'plug-old'}, {'entity_id': 'switch.plug_new', 'area_id': 'bed', 'device_id': 'plug-new'}]
+        d['states'] += [restored('light.kitchen_lamp', 'Lamp'), {'entity_id': 'light.bed_lamp', 'state': 'on', 'attributes': {'friendly_name': 'Lamp'}},
+                        restored('switch.plug_old', 'Smart Plug'), {'entity_id': 'switch.plug_new', 'state': 'on', 'attributes': {'friendly_name': 'Smart Plug'}}]
+        kitchen = lambda out: next(r for r in out['rooms'] if r['id'] == 'kitchen')['entities']
+        self.assertIn('light.kitchen_lamp', kitchen(draft.build(d)), 'a live "Lamp" in the bedroom is another lamp')
+        self.assertIn('switch.plug_old', kitchen(draft.build(d)), 'a live "Smart Plug" device in the bedroom is another plug')
+        for e in d['entities']:
+            if e['entity_id'] in ('light.bed_lamp', 'switch.plug_new'):
+                e['area_id'] = 'kitchen'
+        self.assertNotIn('light.kitchen_lamp', kitchen(draft.build(d)), 'the same name in the same room is the device back')
+        self.assertNotIn('switch.plug_old', kitchen(draft.build(d)), 'the same device name in the same room is the device back')
+
     def test_a_dead_sibling_on_its_own_device_is_not_a_ghost(self):
         d = self.house(ago=1200)
         d['devices'].append({'id': 'strip', 'name': 'Kitchen Strip'})

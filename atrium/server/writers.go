@@ -92,7 +92,12 @@ func (g *Gateway) serveWriters(w http.ResponseWriter, r *http.Request, id Identi
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	if info.Slug != slug || (g.Slug != "" && info.Slug == g.Slug) { // the Supervisor's own word on which add-on this is
+	// The Supervisor's own word on which add-on this is.
+	if info.Slug != slug {
+		http.Error(w, fmt.Sprintf("the Supervisor answered for %s, not %s", info.Slug, slug), http.StatusBadGateway)
+		return
+	}
+	if g.Slug != "" && info.Slug == g.Slug {
 		http.Error(w, "Atrium does not list itself", http.StatusBadRequest)
 		return
 	}

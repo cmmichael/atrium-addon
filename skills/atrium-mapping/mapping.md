@@ -220,9 +220,11 @@ A version 1 file (rooms listed in full) still reads: its rooms become overrides 
   entities too (shown unavailable: a device that is off for the season is still the room's). What the add-on
   decides by itself, once those ten minutes have passed, never picks a restored entity for a slot that takes one
   (the doorbell, a thermostat, the solar sensor, the outdoor temperature, a room's readouts), and leaves out a
-  restored entity that has a live twin: another entity of its domain, not restored, with the same name or on
-  another device of the same name, which is the same device back under a new id (only while its integration is
-  loaded: an offline hub's entities are all restored, and say nothing). Before the ten minutes nothing is
+  restored entity that has a live twin: another entity of its domain, not restored, in the same area, with the
+  same name or on another device of the same name, which is the same device back under a new id (only while its
+  integration is loaded: an offline hub's entities are all restored, and say nothing). The area counts when both
+  are known: two entities plainly named "Lamp" in different rooms are two lamps, one of them unplugged for the
+  season; a restored entity with no area is matched house-wide. Before the ten minutes nothing is
   decided from restored entities, since integrations are still loading. A restored entity whose integration is
   loaded is **stale**: the set-up page lists those, with where to delete them in Home Assistant; the add-on never
   deletes anything itself.

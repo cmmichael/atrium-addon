@@ -102,7 +102,8 @@ func (x *index) autoRemotes() []RemoteMapping {
 		}
 	}
 	var out []RemoteMapping
-	seen := map[string]int{} // name → index in out, so a television known twice is one remote
+	var areas []string // out[i]'s area, so that a television known twice is one remote, while two sets of the same
+	// default name in different rooms (two "Samsung TV"s) stay two. The area counts only when both are known.
 	for _, dev := range order {
 		c := byDev[dev]
 		platform := firstOf(c.remote.platform, c.player.platform)
@@ -113,15 +114,20 @@ func (x *index) autoRemotes() []RemoteMapping {
 			continue
 		}
 		rm := RemoteMapping{Remote: c.remote.id, Player: c.player.id, Name: remoteName(firstOf(x.deviceName[dev], c.player.name, c.remote.name))}
-		key := strings.ToLower(rm.Name)
-		if i, ok := seen[key]; ok {
-			if remotePlatformRank(platform) < remotePlatformRank(firstOf(x.byID[out[i].Remote].platform, x.byID[out[i].Player].platform)) {
-				out[i] = rm
+		area := firstOf(c.player.area, c.remote.area)
+		twin := -1
+		for i, o := range out {
+			if strings.EqualFold(o.Name, rm.Name) && (area == "" || areas[i] == "" || area == areas[i]) {
+				twin = i
+			}
+		}
+		if twin >= 0 {
+			if remotePlatformRank(platform) < remotePlatformRank(firstOf(x.byID[out[twin].Remote].platform, x.byID[out[twin].Player].platform)) {
+				out[twin], areas[twin] = rm, firstOf(area, areas[twin])
 			}
 			continue
 		}
-		seen[key] = len(out)
-		out = append(out, rm)
+		out, areas = append(out, rm), append(areas, area)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -184,7 +190,7 @@ func (x *index) renderRemote(rm RemoteMapping, names map[string]string) (r Remot
 			}
 		}
 	}
-	for _, key := range sortedKeysOf(rm.Keys) {
+	for _, key := range sortedKeys(rm.Keys) {
 		am := rm.Keys[key]
 		a, err := am.action()
 		if err != nil {
@@ -264,13 +270,4 @@ func (x *index) renderRemote(rm RemoteMapping, names map[string]string) (r Remot
 		r.Volume = "" // no level to show: the keys still work
 	}
 	return r, problems, true
-}
-
-func sortedKeysOf(m map[string]ActionMapping) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }

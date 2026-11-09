@@ -401,6 +401,38 @@ func TestTelevisionsBecomeRemotesByThemselves(t *testing.T) {
 	eq(t, "auto frame", auto.Remotes[0], RemoteMapping{Remote: "remote.bed_frame", Player: "media_player.bed_frame", Name: "Bedroom Frame"})
 }
 
+// Two sets with the same default device name in different rooms are two remotes; the same name in the same room (or
+// with no room known) is one television that two integrations know.
+func TestTwoTelevisionsOfOneNameInTwoRoomsAreTwoRemotes(t *testing.T) {
+	d := smallHome()
+	d.Devices = append(d.Devices, map[string]any{"id": "tv-k", "name": "Samsung TV", "area_id": "kitchen"}, map[string]any{"id": "tv-s", "name": "Samsung TV", "area_id": "shed"},
+		map[string]any{"id": "tv-s2", "name": "Samsung TV"}) // the shed set again, through the custom integration, its device unplaced
+	for _, tv := range []struct{ id, dev, platform string }{{"kitchen_tv", "tv-k", "samsungtv"}, {"shed_tv", "tv-s", "samsungtv"}, {"shed_tv_smart", "tv-s2", "samsungtv_smart"}} {
+		d.Entities = append(d.Entities, map[string]any{"entity_id": "media_player." + tv.id, "device_id": tv.dev, "platform": tv.platform}, map[string]any{"entity_id": "remote." + tv.id, "device_id": tv.dev, "platform": tv.platform})
+		d.States["media_player."+tv.id] = &State{State: "off", Attributes: j(`{"friendly_name":"Samsung TV","device_class":"tv"}`).(map[string]any)}
+		d.States["remote."+tv.id] = &State{State: "on", Attributes: map[string]any{}}
+	}
+	h, _ := Render(Mapping{}, d, Config{})
+	eq(t, "remotes", names2(h.Remotes), []string{"Bedroom Frame", "Kitchen TV", "Samsung TV", "Samsung TV"})
+	ids := []string{}
+	for _, r := range h.Remotes {
+		if r.Name == "Samsung TV" {
+			ids = append(ids, r.ID)
+		}
+	}
+	eq(t, "one per room, the core integration's for the shed", ids, []string{"remote.kitchen_tv", "remote.shed_tv"})
+}
+
+// A button or input whose action was left out is reported as that, not as an empty entity.
+func TestAnActionLeftOutIsReportedAsSuch(t *testing.T) {
+	m, err := ParseMapping([]byte("version: 2\nremotes:\n  - id: living\n    player: media_player.bed_frame\n    buttons:\n      - { name: Movie night }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, problems := Render(m, smallHome(), Config{})
+	eq(t, "problems", problems, []string{"remote living, button Movie night: has no action: give an entity id, {remote, command}, {select, option} or {service, entity, data}"})
+}
+
 // The file's remotes: a receiver's volume, inputs through a matrix script, a key moved to another device, a key
 // dropped, a button; and what cannot be used is reported, not fatal.
 func TestTheFileMapsARemoteToScriptsAndServices(t *testing.T) {
@@ -559,8 +591,8 @@ energy:
 }
 
 // Once Home Assistant has run for ten minutes, a restored entity (registered, not provided by its integration since
-// start) is not the add-on's own pick for a one-entity slot, and one with a live twin of the same name is a ghost that
-// rooms and lists leave out. Before that, nothing changes. The file may still name a restored entity: kept, reported.
+// start) is not the add-on's own pick for a one-entity slot, and one with a live twin of the same name in the same
+// area is a ghost that rooms and lists leave out. Before that, nothing changes. The file may still name a restored entity: kept, reported.
 func TestRestoredEntitiesOnceHomeAssistantHasSettled(t *testing.T) {
 	restored := func(d Dump) Dump {
 		d.Entities = append(d.Entities,
@@ -573,8 +605,23 @@ func TestRestoredEntitiesOnceHomeAssistantHasSettled(t *testing.T) {
 			map[string]any{"entity_id": "light.kitchen_island_shelly", "area_id": "kitchen", "platform": "shelly", "config_entry_id": "shelly-entry"},
 			map[string]any{"entity_id": "switch.strip_1", "area_id": "kitchen", "device_id": "strip", "platform": "zha"},
 			map[string]any{"entity_id": "switch.strip_3", "area_id": "kitchen", "device_id": "strip", "platform": "zha"},
+			// Plain names: a live "Lamp" in the bedroom says nothing about the kitchen's; a live "Smart Plug" device in the
+			// bedroom is not the kitchen's back under a new id; the kitchen's own "Heater" device is.
+			map[string]any{"entity_id": "light.kitchen_lamp", "area_id": "kitchen", "platform": "zha"},
+			map[string]any{"entity_id": "light.bed_lamp", "area_id": "bed", "platform": "zha"},
+			map[string]any{"entity_id": "switch.plug_old", "area_id": "kitchen", "device_id": "plug-old", "platform": "zha"},
+			map[string]any{"entity_id": "switch.plug_new", "area_id": "bed", "device_id": "plug-new", "platform": "zha"},
+			map[string]any{"entity_id": "switch.heater_old", "area_id": "kitchen", "device_id": "heater-old", "platform": "zha"},
+			map[string]any{"entity_id": "switch.heater", "area_id": "kitchen", "device_id": "heater", "platform": "zha"},
 		)
-		d.Devices = append(d.Devices, map[string]any{"id": "bell", "name": "Front"}, map[string]any{"id": "bell-old", "name": "Front"}, map[string]any{"id": "strip", "name": "Kitchen Strip"})
+		d.Devices = append(d.Devices, map[string]any{"id": "bell", "name": "Front"}, map[string]any{"id": "bell-old", "name": "Front"}, map[string]any{"id": "strip", "name": "Kitchen Strip"},
+			map[string]any{"id": "plug-old", "name": "Smart Plug"}, map[string]any{"id": "plug-new", "name": "Smart Plug"}, map[string]any{"id": "heater-old", "name": "Heater"}, map[string]any{"id": "heater", "name": "Heater"})
+		d.States["light.kitchen_lamp"] = &State{State: "unavailable", Attributes: j(`{"friendly_name":"Lamp","restored":true}`).(map[string]any)}
+		d.States["light.bed_lamp"] = &State{State: "on", Attributes: j(`{"friendly_name":"Lamp"}`).(map[string]any)}
+		d.States["switch.plug_old"] = &State{State: "unavailable", Attributes: j(`{"friendly_name":"Smart Plug","restored":true}`).(map[string]any)}
+		d.States["switch.plug_new"] = &State{State: "on", Attributes: j(`{"friendly_name":"Smart Plug"}`).(map[string]any)}
+		d.States["switch.heater_old"] = &State{State: "unavailable", Attributes: j(`{"friendly_name":"Heater","restored":true}`).(map[string]any)}
+		d.States["switch.heater"] = &State{State: "off", Attributes: j(`{"friendly_name":"Heater"}`).(map[string]any)}
 		d.States["light.kitchen_island_shelly"] = &State{State: "unavailable", Attributes: j(`{"friendly_name":"Kitchen Island lights","restored":true}`).(map[string]any)}
 		d.States["switch.strip_1"] = &State{State: "on", Attributes: j(`{"friendly_name":"Kitchen Strip outlet 1"}`).(map[string]any)}
 		d.States["switch.strip_3"] = &State{State: "unavailable", Attributes: j(`{"friendly_name":"Kitchen Strip outlet 3","restored":true}`).(map[string]any)}
@@ -635,6 +682,15 @@ func TestRestoredEntitiesOnceHomeAssistantHasSettled(t *testing.T) {
 	}
 	if !contains(k.Entities, "switch.strip_3") {
 		t.Errorf("a dead outlet on a device whose other outlets are live is not a ghost (no other device took its place): %v", k.Entities)
+	}
+	if !contains(k.Entities, "light.kitchen_lamp") || !contains(room(h, "bed").Entities, "light.bed_lamp") {
+		t.Errorf("a live \"Lamp\" in another room is another lamp, so the kitchen's stays (unavailable): %v", k.Entities)
+	}
+	if !contains(k.Entities, "switch.plug_old") {
+		t.Errorf("a live \"Smart Plug\" device in another room is another plug, not this one back: %v", k.Entities)
+	}
+	if contains(k.Entities, "switch.heater_old") || !contains(k.Entities, "switch.heater") {
+		t.Errorf("a live \"Heater\" device in the same room is this one back under a new id, so the old one is a ghost: %v", k.Entities)
 	}
 	if k.Temperature != "sensor.kitchen_temperature" {
 		t.Errorf("the room's temperature is the live sensor, not the restored one: %q", k.Temperature)

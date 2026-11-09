@@ -52,10 +52,12 @@ type index struct {
 	deviceName map[string]string
 	registry   map[string]map[string]any
 	// Restored entities, once Home Assistant has settled (see Dump.Settled). A ghost is a restored entity with a
-	// live twin: another entity of its domain, not restored, with the same name or on a device of the same name;
-	// the device came back under a new id and the old entity was left behind. Only an entity whose integration is
-	// loaded can be a ghost: while a hub is offline, every one of its entities is restored, and a live light of the
-	// same name elsewhere says nothing about them. Ghosts are left out of what the add-on decides by itself; other
+	// live twin: another entity of its domain, not restored, in the same area, with the same name or on a device of
+	// the same name; the device came back under a new id and the old entity was left behind. The area counts only
+	// when both are known: two plain "Lamp"s in different rooms are two lamps, one of them unplugged for the season,
+	// but an entity with no area (its device is gone from the registry) is matched house-wide. Only an entity whose
+	// integration is loaded can be a ghost: while a hub is offline, every one of its entities is restored, and a
+	// live light of the same name elsewhere says nothing about them. Ghosts are left out of what the add-on decides by itself; other
 	// restored entities stay (a device that is off for the winter is still the room's) but are never the add-on's
 	// own pick for a slot that takes one entity.
 	settled bool
@@ -143,32 +145,36 @@ func newIndex(d Dump, music *MusicMapping) *index {
 	sort.Slice(x.ents, func(i, j int) bool { return x.ents[i].id < x.ents[j].id })
 	if x.settled {
 		type key struct{ domain, name string }
-		liveNames := map[key]bool{}
-		liveDevices := map[key]map[string]bool{} // → the device ids of that name with a live entity of that domain
+		type live struct{ device, area string }
+		liveNames := map[key][]live{}   // the live entities of that domain and name
+		liveDevices := map[key][]live{} // the live entities of that domain on a device of that name
 		for _, e := range x.ents {
 			if e.restored {
 				continue
 			}
-			liveNames[key{e.domain, strings.ToLower(e.name)}] = true
+			l := live{e.device, e.area}
+			liveNames[key{e.domain, strings.ToLower(e.name)}] = append(liveNames[key{e.domain, strings.ToLower(e.name)}], l)
 			if n := x.deviceName[e.device]; n != "" {
-				k := key{e.domain, strings.ToLower(n)}
-				if liveDevices[k] == nil {
-					liveDevices[k] = map[string]bool{}
-				}
-				liveDevices[k][e.device] = true
+				liveDevices[key{e.domain, strings.ToLower(n)}] = append(liveDevices[key{e.domain, strings.ToLower(n)}], l)
 			}
 		}
+		sameArea := func(a, b string) bool { return a == "" || b == "" || a == b }
 		loaded := d.loadedEntries()
 		for _, e := range x.ents {
 			if !e.restored || (loaded != nil && e.entry != "" && !loaded[e.entry]) {
 				continue
 			}
-			ghost := liveNames[key{e.domain, strings.ToLower(e.name)}]
+			ghost := false
+			for _, l := range liveNames[key{e.domain, strings.ToLower(e.name)}] {
+				if sameArea(e.area, l.area) {
+					ghost = true
+				}
+			}
 			if n := x.deviceName[e.device]; n != "" && !ghost {
 				// Another device of the same name is the same device back under a new id. The entity's own device
 				// having live siblings says nothing: one endpoint of a power strip can die while the rest report.
-				for dev := range liveDevices[key{e.domain, strings.ToLower(n)}] {
-					if dev != e.device {
+				for _, l := range liveDevices[key{e.domain, strings.ToLower(n)}] {
+					if l.device != e.device && sameArea(e.area, l.area) {
 						ghost = true
 					}
 				}

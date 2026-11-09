@@ -196,6 +196,9 @@ func (a ActionMapping) MarshalYAML() (any, error) {
 
 // action resolves the short form to the call. A zero Action (no domain) means none.
 func (a ActionMapping) action() (Action, error) {
+	if a.Entity == "" && a.Service == "" && a.Remote == "" && a.Select == "" && !a.None {
+		return Action{}, errors.New("has no action: give an entity id, {remote, command}, {select, option} or {service, entity, data}")
+	}
 	switch {
 	case a.None:
 		return Action{}, nil
