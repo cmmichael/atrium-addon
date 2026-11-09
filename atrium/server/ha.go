@@ -34,7 +34,7 @@ func (g *Gateway) mayConfigure(id Identity) bool {
 	if id.Owner {
 		return true
 	}
-	if g.Owner != "" && strings.EqualFold(id.Login, g.Owner) {
+	if owner := g.owner(); owner != "" && strings.EqualFold(id.Login, owner) {
 		return true
 	}
 	for _, a := range g.Opts.Admins {
@@ -219,6 +219,9 @@ type built struct {
 
 const houseTTL = 30 * time.Second
 
+// staleRetry is how long a layout served stale (Home Assistant did not answer) stands before another attempt.
+const staleRetry = 10 * time.Second
+
 // houseJSON is the current layout: rebuilt from Home Assistant when older than houseTTL or when the
 // configuration changed, otherwise served from memory. Concurrent callers share one rebuild, and a rebuild
 // that started before the configuration changed is not kept.
@@ -240,8 +243,16 @@ func (g *Gateway) houseJSON(ctx context.Context) (built, error) {
 		if err != nil {
 			if before.data != nil {
 				log.Printf("Home Assistant did not answer; serving the layout built at %s: %v", before.at.Format(time.RFC3339), err)
+				// Better the last layout than none, and not another minute-long attempt on every request while
+				// Home Assistant restarts: the stale copy stands for a little while.
 				before.stale = true
-				return before, nil // better the last layout than none
+				before.at = time.Now().Add(staleRetry - houseTTL)
+				g.mu.Lock()
+				if g.generation == gen {
+					g.house = before
+				}
+				g.mu.Unlock()
+				return before, nil
 			}
 			return built{}, err
 		}
@@ -459,7 +470,17 @@ func (g *Gateway) isHAAdmin(userID string) bool {
 			g.admins, g.adminsAt = admins, time.Now()
 			g.mu.Unlock()
 		} else {
-			log.Printf("could not list Home Assistant's users (so nobody is an administrator): %v", err)
+			g.mu.Lock()
+			if g.admins != nil {
+				// Home Assistant is not answering (restarting, say): the list it gave before still holds, and it
+				// is asked again in a minute rather than on every request.
+				admins = g.admins
+				g.adminsAt = time.Now().Add(time.Minute - 5*time.Minute)
+				log.Printf("could not list Home Assistant's users; keeping the list of %d from before: %v", len(admins), err)
+			} else {
+				log.Printf("could not list Home Assistant's users (so nobody is an administrator): %v", err)
+			}
+			g.mu.Unlock()
 		}
 	}
 	if !admins[userID] {

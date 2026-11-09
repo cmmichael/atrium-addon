@@ -3,6 +3,21 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.7
+
+- Steadier around restarts, after a review. Just after the add-on starts, before Tailscale has said who signed
+  it in, a caller it does not know is told to try again rather than refused (a refusal made the app sign out
+  and forget the server). While Home Assistant restarts: the last layout is served without a new attempt on
+  every request, the list of administrators from before still holds, and the house's name is asked for off the
+  lock, so one slow answer no longer stalls everyone. The Supervisor's watchdog restarts the add-on if its
+  port stops answering.
+- The port (8126) takes a Home Assistant token on trust for one minute instead of five, and tells the house's
+  name only to someone it knows. A link to Atrium clicked on another site now opens the web app. A layout saved
+  by two writers at once can no longer lose half a file.
+- Web app: a dropped connection is noticed within a minute (a heartbeat) and the page reconnects; a socket
+  that closes before sign-in no longer leaves "connecting" forever; a control that fails goes back to its
+  previous state; the remote's buttons have spoken names; fewer tiles redraw on each reading.
+
 ## 0.9.6
 
 - Review follow-ups. Two televisions with the same default device name in different rooms are two remotes, not

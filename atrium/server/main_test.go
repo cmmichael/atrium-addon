@@ -108,7 +108,11 @@ func TestWhoIsAllowed(t *testing.T) {
 		{Identity{}, false},
 	} {
 		code, hello := get(t, gateway(ha, c.id), "/atrium/hello")
-		if code != 200 || hello["allowed"] != c.want || hello["home"] != "Test Home" {
+		home := "Test Home"
+		if c.id.Login == "" {
+			home = "" // the house's name is for people Tailscale has named
+		}
+		if code != 200 || hello["allowed"] != c.want || hello["home"] != home {
 			t.Errorf("%+v: hello %d %v", c.id, code, hello)
 		}
 		code, _ = get(t, gateway(ha, c.id), "/api/states")

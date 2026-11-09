@@ -72,7 +72,12 @@ type tokenCheck struct {
 	mu     sync.Mutex
 	ok     map[string]time.Time   // token hash → good until
 	failed map[string][]time.Time // caller address → recent refusals
+	now    func() time.Time       // the clock, for tests
 }
+
+// tokenGoodFor is how long a token Home Assistant accepted is taken on trust before it is asked again: short,
+// so that a token Home Assistant revokes stops working here soon after.
+const tokenGoodFor = time.Minute
 
 func (t *tokenCheck) check(ctx context.Context, core interface{ String() string }, peer, token string) tokenVerdict {
 	if token == "" || len(token) > 4096 || strings.Count(token, ".") != 2 { // Home Assistant's access tokens are JWTs
@@ -81,6 +86,9 @@ func (t *tokenCheck) check(ctx context.Context, core interface{ String() string 
 	sum := sha256.Sum256([]byte(token))
 	key := hex.EncodeToString(sum[:])
 	now := time.Now()
+	if t.now != nil {
+		now = t.now()
+	}
 	t.mu.Lock()
 	if until, ok := t.ok[key]; ok && now.Before(until) {
 		t.mu.Unlock()
@@ -116,7 +124,7 @@ func (t *tokenCheck) check(ctx context.Context, core interface{ String() string 
 				delete(t.ok, k)
 			}
 		}
-		t.ok[key] = now.Add(5 * time.Minute)
+		t.ok[key] = now.Add(tokenGoodFor)
 		return tokenGood
 	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {

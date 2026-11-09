@@ -192,13 +192,26 @@ func (g *Gateway) putMapping(ctx context.Context, id Identity, data []byte) (str
 	if g.MappingPath == "" {
 		return "This add-on has nowhere to keep a layout.", true, nil
 	}
-	tmp := g.MappingPath + ".tmp"
-	err := os.WriteFile(tmp, data, 0o644)
-	if err == nil {
-		err = os.Rename(tmp, g.MappingPath)
+	// A temporary file of its own: the editor and the skill saving at once must not rename each other's half.
+	var err error
+	if f, e := os.CreateTemp(filepath.Dir(g.MappingPath), ".atrium.yaml.*.tmp"); e != nil {
+		err = e
+	} else {
+		tmp := f.Name()
+		if _, err = f.Write(data); err == nil {
+			err = f.Chmod(0o644)
+		}
+		if e := f.Close(); err == nil {
+			err = e
+		}
+		if err == nil {
+			err = os.Rename(tmp, g.MappingPath)
+		}
+		if err != nil {
+			os.Remove(tmp)
+		}
 	}
 	if err != nil {
-		os.Remove(tmp)
 		return "Could not save: " + err.Error(), true, nil
 	}
 	g.mu.Lock()

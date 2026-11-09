@@ -42,7 +42,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.6"
+const version = "0.9.7"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -119,6 +119,8 @@ type Gateway struct {
 
 	mu           sync.Mutex
 	home         string
+	homeAsked    time.Time // when Home Assistant was last asked for the name and did not say
+	ownerPending bool      // Tailscale has not yet said who signed this machine in (see learn)
 	config       house.Config
 	mapping      house.Mapping
 	mappingErr   string              // why the file was refused, if it was (the last good mapping stays in use)
@@ -197,7 +199,28 @@ func (g *Gateway) foreignPage(r *http.Request) bool {
 	case "", "none", "same-origin":
 		return false
 	}
+	// A link to Atrium clicked on another page is a top-level navigation: the other page learns nothing from
+	// it, so the web app may open. Home Assistant's API and files are never a page to navigate to.
+	if r.Method == http.MethodGet && r.Header.Get("Sec-Fetch-Mode") == "navigate" && r.Header.Get("Sec-Fetch-Dest") == "document" &&
+		!strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/local/") {
+		return false
+	}
 	return true // cross-site, or same-site: another machine on the tailnet's domain
+}
+
+// owner is the login that signed this machine in, which Tailscale may only say some time after start.
+func (g *Gateway) owner() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.Owner
+}
+
+// ownerUnknown is true while Tailscale has not yet said who signed this machine in: a refusal then would be a
+// guess, and the app would take it as a sign-out.
+func (g *Gateway) ownerUnknown() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.ownerPending
 }
 
 func (g *Gateway) allowed(id Identity) bool {
@@ -219,7 +242,7 @@ func (g *Gateway) allowed(id Identity) bool {
 		return true
 	}
 	login := strings.ToLower(id.Login)
-	if g.Owner != "" && login == strings.ToLower(g.Owner) {
+	if owner := g.owner(); owner != "" && login == strings.ToLower(owner) {
 		return true
 	}
 	for _, a := range append(append([]string{}, g.Opts.Allow...), g.Opts.Admins...) {
@@ -462,12 +485,24 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		ok = writerPath(r.URL.Path)
 	}
 
+	if !ok && !id.Local && !id.HomeAssistant && !id.Addon && g.ownerUnknown() {
+		// Just after a start, Tailscale has not said yet who signed this machine in, so this caller may well be
+		// the owner. Not a refusal (the app would sign out on one): not yet.
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "Atrium is still finding out who signed it in to the tailnet; try again in a moment", http.StatusServiceUnavailable)
+		return
+	}
 	if r.URL.Path == "/atrium/hello" {
-		// Who the app is to this house. Answered to anyone on the tailnet, so the app can say why not.
+		// Who the app is to this house. Answered to anyone on the tailnet, so the app can say why not. The house's
+		// name is for people Tailscale or a token has named, not for whoever reaches the port.
 		w.Header().Set("Content-Type", "application/json")
 		app := appVersion(r.UserAgent())
+		home := g.homeName(r.Context())
+		if !ok && id.Login == "" {
+			home = ""
+		}
 		json.NewEncoder(w).Encode(map[string]any{
-			"atrium": contract, "version": version, "minApp": minApp, "update": app != "" && olderThan(app, minApp), "home": g.homeName(r.Context()),
+			"atrium": contract, "version": version, "minApp": minApp, "update": app != "" && olderThan(app, minApp), "home": home,
 			"login": id.Login, "name": id.Name, "device": id.Device, "allowed": ok, "as": g.upstreamFor(id).As, "configures": ok && g.mayConfigure(id),
 		})
 		return
@@ -631,8 +666,8 @@ func (g *Gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, id Iden
 		return
 	}
 	defer server.CloseNow()
-	client.SetReadLimit(-1)
-	server.SetReadLimit(-1) // the registries are megabytes
+	client.SetReadLimit(4 << 20) // a caller's messages are small; Home Assistant's registries are megabytes
+	server.SetReadLimit(-1)
 
 	done := make(chan struct{}, 2)
 	go func() { // caller → Home Assistant
@@ -681,13 +716,20 @@ func withToken(message []byte, token string) ([]byte, bool) {
 	return out, err == nil
 }
 
-// homeName is what Home Assistant calls the house, asked once.
+// homeName is what Home Assistant calls the house, asked once it answers. Asked outside the lock (hello is
+// answered to anyone, and Home Assistant may be restarting), and not again for a while after it did not say.
 func (g *Gateway) homeName(ctx context.Context) string {
 	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.home != "" {
-		return g.home
+	if g.home != "" || time.Since(g.homeAsked) < 30*time.Second {
+		home := g.home
+		g.mu.Unlock()
+		if home == "" {
+			return "Home"
+		}
+		return home
 	}
+	g.homeAsked = time.Now()
+	g.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, "GET", strings.TrimSuffix(g.Addon.Base.String(), "/")+"/api/config", nil)
@@ -701,8 +743,10 @@ func (g *Gateway) homeName(ctx context.Context) string {
 		Name string `json:"location_name"`
 	}
 	if json.NewDecoder(res.Body).Decode(&cfg) == nil && cfg.Name != "" {
+		g.mu.Lock()
 		g.home = cfg.Name
-		return g.home
+		g.mu.Unlock()
+		return cfg.Name
 	}
 	return "Home"
 }
@@ -871,9 +915,9 @@ func main() {
 	if skill := env("ATRIUM_SKILL", "/app/skill"); fileExists(filepath.Join(skill, "SKILL.md")) {
 		g.SkillDir = skill
 	}
-	// The declared layout lives in the add-on's own configuration folder, mapped read-only at /config here and
-	// /addon_configs/<slug>/ on the host. Only that folder: Home Assistant's own configuration (secrets, auth
-	// storage) is not mounted.
+	// The declared layout lives in the add-on's own configuration folder, mapped at /config here (writable, for
+	// PUT /atrium/mapping) and /addon_configs/<slug>/ on the host. Only that folder: Home Assistant's own
+	// configuration (secrets, auth storage) is not mounted.
 	g.Slug = g.addonSlug()
 	g.MappingPath = env("ATRIUM_MAPPING", "/config/atrium.yaml") // the add-on's own folder (addon_config), not Home Assistant's
 	if !g.readMapping() {
@@ -973,6 +1017,9 @@ func main() {
 		return st.Self.IsTagged() || (g.Owner != "" && st.Self.DNSName != "")
 	}
 	known := learn(status)
+	g.mu.Lock()
+	g.ownerPending = !known
+	g.mu.Unlock()
 	g.Who = func(ctx context.Context, remoteAddr string) (Identity, error) {
 		who, err := lc.WhoIs(ctx, remoteAddr)
 		if err != nil {
@@ -1009,11 +1056,15 @@ func main() {
 				st, err := lc.Status(context.Background())
 				if err == nil && learn(st) {
 					g.mu.Lock()
+					g.ownerPending = false
 					log.Printf("Tailscale now says: signed in by %s, names %v", g.Owner, g.Names)
 					g.mu.Unlock()
 					return
 				}
 			}
+			g.mu.Lock()
+			g.ownerPending = false
+			g.mu.Unlock()
 			log.Printf("Tailscale never said who signed this machine in; only the listed logins are allowed")
 		}()
 	}

@@ -1,5 +1,5 @@
 name: Atrium
-version: "0.9.6"
+version: "0.9.7"
 slug: atrium
 description: Your house in the Atrium app and on the web, from anywhere, over your tailnet
 url: https://github.com/cmmichael/atrium-addon
@@ -21,6 +21,7 @@ ports:
 ports_description:
   8126/tcp: For the app at home or over a VPN without Tailscale (asks for a Home Assistant sign-in). Clear it to turn this off.
 ingress_port: 8099
+watchdog: tcp://[HOST]:[PORT:8099]   # the Supervisor restarts the add-on if its ingress port stops answering
 panel_icon: mdi:home-heart
 panel_title: Atrium
 options:
