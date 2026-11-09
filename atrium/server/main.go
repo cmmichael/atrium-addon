@@ -42,7 +42,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.17"
+const version = "0.9.18"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -122,12 +122,18 @@ type Gateway struct {
 	ResolveAddon func(slug string) ([]string, error)
 	CheckAddon   func(slug, ip string) error
 
-	mu           sync.Mutex
-	home         string
-	homeAsked    time.Time // when Home Assistant was last asked for the name and did not say
-	updateID     string    // the add-on's update entity in Home Assistant, once found (update.go)
-	telemetry    telemetry // the apps' diagnostics (telemetry.go)
-	alerts       *alerts   // the phones that take alerts, and the sending (alerts.go, apns.go)
+	mu        sync.Mutex
+	home      string
+	homeAsked time.Time // when Home Assistant was last asked for the name and did not say
+	updateID  string    // the add-on's update entity in Home Assistant, once found (update.go)
+	telemetry telemetry // the apps' diagnostics (telemetry.go)
+	alerts    *alerts   // the phones that take alerts, and the sending (alerts.go, apns.go)
+	// For /atrium/health (health.go): when this process started, the last word from Home Assistant, the layout's
+	// entities Home Assistant reports unavailable, the newest add-on version seen.
+	started      time.Time
+	haSeen       time.Time
+	unavailable  []string
+	updateLatest string
 	updateAsked  time.Time
 	ownerPending bool // Tailscale has not yet said who signed this machine in (see learn)
 	config       house.Config
@@ -555,6 +561,8 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		g.serveDevices(w, r, id)
 	case r.URL.Path == "/atrium/alerts":
 		g.serveAlerts(w, r, id)
+	case r.URL.Path == "/atrium/health":
+		g.serveHealth(w, r, id)
 	case r.URL.Path == "/atrium/config":
 		g.serveConfig(w, r, id)
 	case r.URL.Path == "/atrium/mapping":
@@ -869,7 +877,7 @@ func main() {
 	if opts.Hostname == "" {
 		opts.Hostname = "atrium"
 	}
-	g := &Gateway{Opts: opts, ConfigPath: env("ATRIUM_CONFIG", "/data/config.json")}
+	g := &Gateway{Opts: opts, ConfigPath: env("ATRIUM_CONFIG", "/data/config.json"), started: time.Now()}
 	if cfg, err := house.Load(g.ConfigPath); err != nil {
 		log.Fatalf("configuration %s: %v", g.ConfigPath, err)
 	} else {

@@ -97,6 +97,9 @@ func (g *Gateway) updateStatus(ctx context.Context) UpdateInfo {
 	}
 	info.Latest = st.Attributes.Latest
 	info.ReleaseURL = st.Attributes.ReleaseURL
+	g.mu.Lock()
+	g.updateLatest = info.Latest
+	g.mu.Unlock()
 	info.Available = info.Latest != "" && olderThan(version, info.Latest)
 	switch p := st.Attributes.InProgress.(type) {
 	case bool:

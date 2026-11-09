@@ -3,6 +3,14 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.18
+
+- `GET /atrium/health`: how the add-on and its house are doing, in one answer: the version and any newer one,
+  uptime, when Home Assistant last spoke and whether it is reachable, the tailnet's state and address, the
+  layout (rooms, problems, stale entities, when it was read), the house (when it was built, whether it is a
+  stale copy, the entities Home Assistant reports unavailable), alerts (key in, phones registered). The app shows
+  it under Settings → House health.
+
 ## 0.9.17
 
 - The button under an alert reads by what the action does, from a fixed set iOS needs registered in advance:

@@ -283,11 +283,13 @@ func (g *Gateway) alertEvents(ctx context.Context) error {
 	if err := c.Write(ctx, websocket.MessageText, sub); err != nil {
 		return err
 	}
+	g.heard()
 	for {
 		m, err := read()
 		if err != nil {
 			return err
 		}
+		g.heard()
 		if m["type"] != "event" {
 			continue
 		}

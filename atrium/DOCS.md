@@ -183,6 +183,10 @@ first time the app connects after allowing notifications; `GET /atrium/devices` 
   dropped, the device model and the iOS and app versions. Nothing about the house is in them. They appear in
   this add-on's log as `app <login> (<device>) …` lines, and `GET /atrium/telemetry` lists the latest per device
   for administrators.
+- `GET /atrium/health` says how the add-on and its house are doing: version, uptime, whether Home Assistant is
+  answering and when it last did, the tailnet, the layout's rooms and problems, when the house was last built and
+  whether it is a stale copy, the entities it shows that Home Assistant reports unavailable, and whether alerts
+  can be sent. The app shows it under Settings → House health.
 - The in-app preferences live in `/data/config.json` and can be read and written at `/atrium/config` (JSON, `GET`
   and `PUT`, administrators only): `name`, `tabs`, `floors`, `rooms` (by room id: `hidden`, `name`, `floor`,
   `order`, `thermostat`, `entities`) and `entities` (by entity id: `hidden`, `name`, `room`).

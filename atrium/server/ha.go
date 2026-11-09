@@ -259,9 +259,11 @@ func (g *Gateway) houseJSON(ctx context.Context) (built, error) {
 		h, problems := house.Render(mapping, d, cfg)
 		h.BuiltAt = time.Now().UTC().Format(time.RFC3339)
 		stale := house.Stale(d)
+		unavailable := unavailableIn(h, d.States)
 		g.mu.Lock()
 		changed := !g.rendered || strings.Join(problems, "\n") != strings.Join(g.problems, "\n") || len(h.Rooms) != g.rooms
-		g.problems, g.rendered, g.rooms, g.stale = problems, true, len(h.Rooms), stale
+		g.problems, g.rendered, g.rooms, g.stale, g.unavailable = problems, true, len(h.Rooms), stale, unavailable
+		g.haSeen = time.Now() // Home Assistant answered the registries just now
 		g.mu.Unlock()
 		if changed {
 			for _, p := range problems {
