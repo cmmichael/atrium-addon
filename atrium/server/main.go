@@ -42,7 +42,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.7"
+const version = "0.9.8"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -502,7 +502,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 			home = ""
 		}
 		json.NewEncoder(w).Encode(map[string]any{
-			"atrium": contract, "version": version, "minApp": minApp, "update": app != "" && olderThan(app, minApp), "home": home,
+			"atrium": contract, "version": version, "minApp": minApp, "update": app != "" && olderThan(app, minApp), "home": home, "slug": g.Slug,
 			"login": id.Login, "name": id.Name, "device": id.Device, "allowed": ok, "as": g.upstreamFor(id).As, "configures": ok && g.mayConfigure(id),
 		})
 		return

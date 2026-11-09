@@ -30,6 +30,62 @@ type Mapping struct {
 	Names    map[string]string `yaml:"names,omitempty"`
 	// Remotes: absent, one per television the add-on finds; given, exactly these.
 	Remotes []RemoteMapping `yaml:"remotes,omitempty"`
+	// Widgets: absent, Scenes, Home and one per room; given, exactly these.
+	Widgets []WidgetMapping `yaml:"widgets,omitempty"`
+}
+
+// WidgetMapping is one Home Screen widget in the file: a name and the items it shows, in order. The phone fits
+// the items to the widget's size (one in the small square, a row in the medium, a grid in the large) unless
+// `small`, `medium`, `large` or `lock` list which items that size shows, by the ids the items are given here
+// (the scene's or entity's id, the room's id for `lights`, "alarm", "solar", a button's name).
+type WidgetMapping struct {
+	ID     string              `yaml:"id,omitempty"`
+	Name   string              `yaml:"name,omitempty"`
+	Items  []WidgetItemMapping `yaml:"items"`
+	Small  []string            `yaml:"small,omitempty"`
+	Medium []string            `yaml:"medium,omitempty"`
+	Large  []string            `yaml:"large,omitempty"`
+	Lock   []string            `yaml:"lock,omitempty"`
+}
+
+// WidgetItemMapping is one item, in the file's short forms: `{scene: scene.movie}`, `{entity: light.island}`
+// (a toggle), `{lights: kitchen}` (a room's lights), `{readout: sensor.pool_temperature}`, the words `alarm`
+// and `solar`, or `{name: Movie night, icon: film, action: …}` for any action.
+type WidgetItemMapping struct {
+	Scene   string         `yaml:"scene,omitempty"`
+	Entity  string         `yaml:"entity,omitempty"`
+	Lights  string         `yaml:"lights,omitempty"`
+	Readout string         `yaml:"readout,omitempty"`
+	Word    string         `yaml:"-"` // alarm, solar
+	Name    string         `yaml:"name,omitempty"`
+	Icon    string         `yaml:"icon,omitempty"`
+	Action  *ActionMapping `yaml:"action,omitempty"`
+}
+
+func (w *WidgetItemMapping) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind == yaml.ScalarNode {
+		switch n.Value {
+		case "alarm", "solar":
+			*w = WidgetItemMapping{Word: n.Value}
+			return nil
+		}
+		return fmt.Errorf("a widget item is {scene: …}, {entity: …}, {lights: <room>}, {readout: …}, alarm, solar or {name, icon, action}; not %q", n.Value)
+	}
+	type plain WidgetItemMapping
+	var p plain
+	if err := n.Decode(&p); err != nil {
+		return err
+	}
+	*w = WidgetItemMapping(p)
+	return nil
+}
+
+func (w WidgetItemMapping) MarshalYAML() (any, error) {
+	if w.Word != "" {
+		return w.Word, nil
+	}
+	type plain WidgetItemMapping
+	return plain(w), nil
 }
 
 // RemoteMapping is one remote in the file. The keys the integration knows come by themselves from `remote` (its
@@ -381,12 +437,12 @@ type MusicMapping struct {
 // Empty says whether the file adds nothing: no overrides and no custom screen.
 func (m Mapping) Empty() bool {
 	return m.Name == "" && len(m.Floors) == 0 && len(m.Rooms) == 0 && len(m.Hide) == 0 && len(m.Scenes) == 0 &&
-		!m.Home.set() && m.Security == nil && m.Energy == nil && m.Music == nil && len(m.Names) == 0 && m.Remotes == nil
+		!m.Home.set() && m.Security == nil && m.Energy == nil && m.Music == nil && len(m.Names) == 0 && m.Remotes == nil && m.Widgets == nil
 }
 
 // Custom says whether the file has any of the screens that only it can fill.
 func (m Mapping) Custom() bool {
-	return m.Home.set() || m.Security != nil || m.Energy != nil || m.Music != nil || m.Remotes != nil
+	return m.Home.set() || m.Security != nil || m.Energy != nil || m.Music != nil || m.Remotes != nil || m.Widgets != nil
 }
 
 // hides says whether a house-wide hide rule covers this entity: its id, a glob over ids, or its integration.

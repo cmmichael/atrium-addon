@@ -129,6 +129,31 @@ names:                            # display names, where Home Assistant's are no
   sensor.oven_power: Oven
 ```
 
+### Widgets
+
+```yaml
+widgets:
+  - id: evening
+    name: Evening
+    items:
+      - scene: scene.movie_night            # tap runs it
+      - entity: light.kitchen_island        # on or off; tap toggles (light, switch, fan, input_boolean)
+      - lights: kitchen                     # the room's lights: how many are on; tap turns them off
+      - readout: sensor.pool_temperature    # a number with its unit
+      - alarm                               # the alarm's state; tap opens the app
+      - solar                               # solar power now
+      - { name: PS5, icon: gamecontroller, action: script.matrix_ps5 }   # any action (see Actions)
+    small: [scene.movie_night]              # optional: what each size shows, by the ids above
+    medium: [scene.movie_night, kitchen, PS5]
+```
+
+Each widget is one choice in the phone's widget gallery. The phone fits the items to the size it is given (one in
+the small square, a row in the medium, a grid in the large, a line or two on the Lock Screen) in the order listed,
+unless `small`, `medium`, `large` or `lock` say which items that size shows: a scene or entity by its id, a room's
+lights by the room's id, `alarm`, `solar`, a button by its name. Without `widgets:` the add-on offers Scenes (the
+house's scenes), Home (alarm, solar, the outdoor temperature, each room's lights) and one widget per room with
+lights or scenes. An item Home Assistant does not have is dropped and reported.
+
 ### Actions
 
 An action, in `keys`, `inputs` and `buttons`, is one Home Assistant service call, in a short form:

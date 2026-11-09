@@ -3,6 +3,17 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.8
+
+- Widgets: `house.json` now carries `widgets`, what the app's Home Screen and Lock Screen widgets show. Without
+  a `widgets:` section in `atrium.yaml`: Scenes, Home (alarm, solar, outdoor temperature, each room's lights) and
+  one widget per room with lights or scenes. With one: exactly the items named, and what each size shows. The
+  atrium-mapping skill and `mapping.md` describe it. App 0.9 (build of 2026-11-09) draws them.
+- Hello carries the add-on's slug, so the app can offer an administrator the update from its Home screen.
+- Televisions: a set known to two integrations is one remote when their devices share a MAC address, whatever
+  each named it; a television's built-in Chromecast or its Music Assistant player no longer becomes a remote of
+  its own (it can play to the set, not drive it).
+
 ## 0.9.7
 
 - Steadier around restarts, after a review. Just after the add-on starts, before Tailscale has said who signed

@@ -401,6 +401,37 @@ func TestTelevisionsBecomeRemotesByThemselves(t *testing.T) {
 	eq(t, "auto frame", auto.Remotes[0], RemoteMapping{Remote: "remote.bed_frame", Player: "media_player.bed_frame", Name: "Bedroom Frame"})
 }
 
+// A television is usually known more than once: its own integration (twice, with a custom one), its built-in
+// Chromecast, Music Assistant. The casts and players are ways to play to it, not remotes; two integrations'
+// devices for one set share its MAC address and are one remote, whatever each called it.
+func TestATelevisionKnownByCastAndByMACIsOneRemote(t *testing.T) {
+	d := smallHome()
+	d.Devices = append(d.Devices,
+		map[string]any{"id": "g-core", "name": "Guestroom Frame (QN43LS03DAFXZA)", "area_id": "shed", "connections": []any{[]any{"mac", "C8:A6:EF:4F:DA:78"}}},
+		map[string]any{"id": "g-smart", "name": "guest frame", "connections": []any{[]any{"mac", "c8:a6:ef:4f:da:78"}}},
+		map[string]any{"id": "g-cast", "name": "43\" The Frame"},
+		map[string]any{"id": "g-ma", "name": "43\" The Frame"})
+	for _, e := range []struct{ id, dev, platform, class string }{
+		{"media_player.guestroom_frame", "g-core", "samsungtv", "tv"}, {"remote.guestroom_frame", "g-core", "samsungtv", ""},
+		{"media_player.guest_frame", "g-smart", "samsungtv_smart", "tv"}, {"remote.guest_frame", "g-smart", "samsungtv_smart", ""},
+		{"media_player.ls03d8176", "g-cast", "cast", "tv"}, {"media_player.guestroom_frame_ma", "g-ma", "music_assistant", "tv"},
+	} {
+		d.Entities = append(d.Entities, map[string]any{"entity_id": e.id, "device_id": e.dev, "platform": e.platform})
+		attrs := `{"friendly_name":"Frame"}`
+		if e.class != "" {
+			attrs = `{"friendly_name":"Frame","device_class":"tv"}`
+		}
+		d.States[e.id] = &State{State: "off", Attributes: j(attrs).(map[string]any)}
+	}
+	h, _ := Render(Mapping{}, d, Config{})
+	eq(t, "remotes", names2(h.Remotes), []string{"Bedroom Frame", "Guestroom Frame (QN43LS03DAFXZA)", "Kitchen TV"})
+	ids := []string{}
+	for _, r := range h.Remotes {
+		ids = append(ids, r.ID)
+	}
+	eq(t, "the core integration's remote stands for the set", ids, []string{"remote.bed_frame", "remote.guestroom_frame", "remote.kitchen_gtv"})
+}
+
 // Two sets with the same default device name in different rooms are two remotes; the same name in the same room (or
 // with no room known) is one television that two integrations know.
 func TestTwoTelevisionsOfOneNameInTwoRoomsAreTwoRemotes(t *testing.T) {

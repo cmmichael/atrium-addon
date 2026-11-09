@@ -91,9 +91,18 @@ delete them in Home Assistant: **Settings → Devices & services → Entities**.
 ## Televisions
 
 Every television Home Assistant knows (Samsung, Google TV and Android TV, Roku, Apple TV, Sony, LG) gets a
-remote in its room: power, inputs, a d-pad, transport and volume, with the keys the integration provides.
+remote in its room: power, inputs, a d-pad, transport and volume, with the keys the integration provides. A set
+known to two integrations (Samsung's and a custom one, say) is one remote, matched by its MAC address or its
+name; its built-in Chromecast and its Music Assistant player are ways to play to it, not remotes.
 Where the room is more than one box — a receiver for the sound, an HDMI matrix for the inputs — write a Home
 Assistant script for each input and map it in `atrium.yaml` under `remotes` (the atrium-mapping skill does this).
+
+## Widgets
+
+The app's Home Screen and Lock Screen widgets show what the layout says: without a word written, a Scenes
+widget, a Home widget (alarm, solar, the outdoor temperature, each room's lights) and one per room. A `widgets:`
+section in `atrium.yaml` names your own: a few scenes and a room's lights for the evening, the pool's readouts,
+whatever a glance should show; the atrium-mapping skill writes it. The widget fits the items to its size.
 
 ## Cameras
 
@@ -109,6 +118,9 @@ still picture, so their tiles show "Live view" until one is opened.
   Web pages from other sites cannot use it.
 - With HTTPS certificates enabled for your tailnet (Tailscale admin console → DNS), the address is `https://`;
   otherwise plain HTTP inside the tailnet's own encryption.
+- When the app is newer than the add-on, its Home screen says so. A Home Assistant administrator signed in
+  directly can press **Update now** there (the Supervisor does the update, through Home Assistant, as for any
+  app); over Tailscale the card points to Settings → Apps → Atrium in Home Assistant.
 - Nothing inside Home Assistant is changed: no custom integration, no change to its sign-in.
 - The in-app preferences live in `/data/config.json` and can be read and written at `/atrium/config` (JSON, `GET`
   and `PUT`, administrators only): `name`, `tabs`, `floors`, `rooms` (by room id: `hidden`, `name`, `floor`,

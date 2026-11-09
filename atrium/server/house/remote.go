@@ -64,6 +64,11 @@ func remotePlatformRank(p string) int {
 	return len(remotePlatforms)
 }
 
+// playerOnlyRemotes are the integrations whose media player drives the television itself (power, source,
+// volume) with no remote entity beside it. Any other player without a remote is not a remote: a Chromecast
+// built into the set (cast), a Music Assistant or DLNA player, a Sonos.
+var playerOnlyRemotes = map[string]bool{"webostv": true, "vizio": true, "philips_js": true, "panasonic_viera": true, "lg_netcast": true, "androidtv": true}
+
 func sendCommand(remote, command string) Action {
 	return Action{Domain: "remote", Service: "send_command", Entity: remote, Data: map[string]any{"command": command}}
 }
@@ -104,20 +109,25 @@ func (x *index) autoRemotes() []RemoteMapping {
 	var out []RemoteMapping
 	var areas []string // out[i]'s area, so that a television known twice is one remote, while two sets of the same
 	// default name in different rooms (two "Samsung TV"s) stay two. The area counts only when both are known.
+	var macs []string // out[i]'s MAC address, the surer sign of one television known twice
 	for _, dev := range order {
 		c := byDev[dev]
 		platform := firstOf(c.remote.platform, c.player.platform)
 		if c.player.id == "" && remoteCommands[platform] == nil {
 			continue // a bare remote of an integration whose keys the add-on does not know: the file can map them
 		}
-		if c.remote.id == "" && remoteCommands[platform] == nil && platform != "webostv" && c.player.class != "tv" {
+		if c.remote.id == "" && remoteCommands[platform] == nil && !playerOnlyRemotes[platform] {
+			// A media player alone is a remote only on an integration that speaks to the television itself. The
+			// Frame's Chromecast (cast) or its Music Assistant player is a way to play to the set, not to drive it.
 			continue
 		}
 		rm := RemoteMapping{Remote: c.remote.id, Player: c.player.id, Name: remoteName(firstOf(x.deviceName[dev], c.player.name, c.remote.name))}
 		area := firstOf(c.player.area, c.remote.area)
+		mac := x.deviceMAC[dev]
 		twin := -1
 		for i, o := range out {
-			if strings.EqualFold(o.Name, rm.Name) && (area == "" || areas[i] == "" || area == areas[i]) {
+			sameName := strings.EqualFold(o.Name, rm.Name) && (area == "" || areas[i] == "" || area == areas[i])
+			if sameName || (mac != "" && mac == macs[i]) { // two integrations' devices for one set share its MAC
 				twin = i
 			}
 		}
@@ -125,9 +135,10 @@ func (x *index) autoRemotes() []RemoteMapping {
 			if remotePlatformRank(platform) < remotePlatformRank(firstOf(x.byID[out[twin].Remote].platform, x.byID[out[twin].Player].platform)) {
 				out[twin], areas[twin] = rm, firstOf(area, areas[twin])
 			}
+			macs[twin] = firstOf(macs[twin], mac)
 			continue
 		}
-		out, areas = append(out, rm), append(areas, area)
+		out, areas, macs = append(out, rm), append(areas, area), append(macs, mac)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out

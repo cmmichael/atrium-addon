@@ -50,6 +50,7 @@ type index struct {
 	isSpeaker  map[string]bool
 	deviceArea map[string]string
 	deviceName map[string]string
+	deviceMAC  map[string]string // the device's MAC address, when the registry has one: two integrations' devices for one television share it
 	registry   map[string]map[string]any
 	// Restored entities, once Home Assistant has settled (see Dump.Settled). A ghost is a restored entity with a
 	// live twin: another entity of its domain, not restored, in the same area, with the same name or on a device of
@@ -90,11 +91,18 @@ func (x *index) firstPickable(es []ent) string {
 }
 
 func newIndex(d Dump, music *MusicMapping) *index {
-	x := &index{d: d, byID: map[string]ent{}, deviceHas: map[string]map[string]bool{}, isSpeaker: map[string]bool{}, deviceArea: map[string]string{}, deviceName: map[string]string{}, settled: d.Settled(), ghost: map[string]bool{}}
+	x := &index{d: d, byID: map[string]ent{}, deviceHas: map[string]map[string]bool{}, isSpeaker: map[string]bool{}, deviceArea: map[string]string{}, deviceName: map[string]string{}, deviceMAC: map[string]string{}, settled: d.Settled(), ghost: map[string]bool{}}
 	for _, dev := range d.Devices {
 		if id, _ := dev["id"].(string); id != "" {
 			x.deviceArea[id], _ = dev["area_id"].(string)
 			x.deviceName[id] = firstOf(str(dev["name_by_user"]), str(dev["name"]))
+			if conns, ok := dev["connections"].([]any); ok {
+				for _, c := range conns {
+					if pair, ok := c.([]any); ok && len(pair) == 2 && str(pair[0]) == "mac" {
+						x.deviceMAC[id] = strings.ToLower(str(pair[1]))
+					}
+				}
+			}
 		}
 	}
 	registry := map[string]map[string]any{}
@@ -248,6 +256,8 @@ func AutoMapping(d Dump) Mapping {
 	if rs := x.autoRemotes(); len(rs) > 0 {
 		m.Remotes = rs
 	}
+	// The widgets follow the rendered house (they point at its scenes and rooms), so the auto mapping leaves them
+	// to the renderer; atrium_auto shows them from the house it renders.
 	return m
 }
 

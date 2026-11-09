@@ -572,6 +572,18 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 			h.Names[id] = n
 		}
 	}
+	// Widgets: the file's, else Scenes, Home and one per room. Last, since they point at what is above.
+	widgets := m.Widgets
+	if widgets == nil {
+		widgets = autoWidgets(h)
+	}
+	for _, wm := range widgets {
+		w, wp := renderWidget(wm, h, d, hidden)
+		problems = append(problems, wp...)
+		if len(w.Items) > 0 {
+			h.Widgets = append(h.Widgets, w)
+		}
+	}
 	return h, problems
 }
 

@@ -1,6 +1,6 @@
 ---
 name: atrium-mapping
-description: Write or revise atrium.yaml, the Atrium layout file for a Home Assistant — the custom screens (Home readouts, Security, Energy, Music, TV remotes) and the overrides on the automatic rooms (hide, rank, rename, thermostat). Use when setting Atrium up for a house, when a custom screen is empty or wrong, when a television's remote lacks a key or an input (an HDMI matrix, a receiver), when the rooms need tidying, or when the add-on log reports mapping problems.
+description: Write or revise atrium.yaml, the Atrium layout file for a Home Assistant — the custom screens (Home readouts, Security, Energy, Music, TV remotes, Home Screen widgets) and the overrides on the automatic rooms (hide, rank, rename, thermostat). Use when setting Atrium up for a house, when a custom screen is empty or wrong, when a television's remote lacks a key or an input (an HDMI matrix, a receiver), when the rooms need tidying, or when the add-on log reports mapping problems.
 ---
 
 # Atrium mapping
@@ -155,6 +155,11 @@ Then:
 
 ## Rules
 
+- **Widgets.** Without `widgets:` the phone offers Scenes, Home and one widget per room. Write `widgets:` when
+  the owner wants a particular set on the Home Screen: a few scenes and a room's lights for the evening, the pool
+  and the solar readouts, the alarm. Items are `{scene: …}`, `{entity: …}` (a toggle), `{lights: <room>}`,
+  `{readout: <sensor>}`, `alarm`, `solar`, or `{name, icon, action}`; `small`/`medium`/`large`/`lock` pick what
+  each size shows. Keep a widget to what fits a glance: eight items at most.
 - **Never invent an entity id.** Every id in the file must come from Home Assistant (`atrium_home`, the draft,
   or a `get_states` listing you looked at). If unsure whether an entity exists, look it up; do not guess a name.
 - Write only what the automatic rooms get wrong and what the custom screens need. Do not list rooms or their

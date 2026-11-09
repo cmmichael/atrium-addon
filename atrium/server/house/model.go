@@ -155,6 +155,35 @@ type House struct {
 	HiddenRooms []Room `json:"hiddenRooms,omitempty"`
 	// Televisions and the like, each a set of buttons: the file's, or one per television found.
 	Remotes []Remote `json:"remotes,omitempty"`
+	// Home Screen widgets: the file's, or Scenes, Home and one per room. The phone fits the items to the size.
+	Widgets []Widget `json:"widgets,omitempty"`
+}
+
+// Widget is one choice in the phone's widget gallery: a named list of items, every one already resolved. The
+// widget draws as many as its size holds, in this order, unless the file says what each size shows.
+type Widget struct {
+	ID    string       `json:"id"`
+	Name  string       `json:"name"`
+	Items []WidgetItem `json:"items"`
+	// Item ids per size, when the file chose; else the first items that fit.
+	Small  []string `json:"small,omitempty"`
+	Medium []string `json:"medium,omitempty"`
+	Large  []string `json:"large,omitempty"`
+	Lock   []string `json:"lock,omitempty"` // the Lock Screen's small shapes
+}
+
+// WidgetItem is one tile of a widget. Kinds: scene (tap runs it), toggle (an entity whose state is on or off;
+// tap toggles), lights (a room's lights: how many are on; tap turns them off), readout (a number with its unit),
+// alarm (the alarm's state; tap opens the app), button (any action).
+type WidgetItem struct {
+	ID       string   `json:"id"`
+	Kind     string   `json:"kind"`
+	Name     string   `json:"name"`
+	Icon     string   `json:"icon,omitempty"`     // an SF Symbol name
+	Entity   string   `json:"entity,omitempty"`   // whose state is shown
+	Entities []string `json:"entities,omitempty"` // lights: the room's lights
+	Unit     string   `json:"unit,omitempty"`     // readout
+	Action   *Action  `json:"action,omitempty"`   // what a tap does; none for alarm and readout
 }
 
 func newHouse(name string) House {
