@@ -15,6 +15,7 @@ func TestVersionThreeSectionsAreResolved(t *testing.T) {
 	}
 	add("sensor.water_flow", "0.4", `{"unit_of_measurement":"gal/min"}`)
 	add("sensor.water_today", "71", `{"unit_of_measurement":"gal"}`)
+	add("sensor.water_last_day", "2026-11-05T23:00:00+00:00", `{"device_class":"timestamp"}`)
 	add("switch.water_valve", "on", `{}`)
 	add("sensor.water_mode", "home", `{}`)
 	add("binary_sensor.leak_laundry", "off", `{"device_class":"moisture"}`)
@@ -45,15 +46,20 @@ energy:
   water:
     flow: sensor.water_flow
     today: sensor.water_today
+    date: sensor.water_last_day
     valve: { entity: switch.water_valve, openOnly: true }
     mode: sensor.water_mode
     alerts: [binary_sensor.leak_laundry]
 climate:
-  thermostats: [{ entity: climate.hall, serves: [kitchen, shed, attic] }]
+  thermostats:
+    - { entity: climate.hall, serves: [kitchen, shed, attic] }
+    - { entity: climate.downstairs, action: setpoint }
+    - { entity: climate.fridge, action: guess }
   air: [{ room: kitchen, co2: sensor.kitchen_co2 }, { co2: sensor.kitchen_co2 }]
   bands: { co2: { fair: 900, poor: 1300 }, smoke: { fair: 1, poor: 2 } }
 appliances:
   - { name: Dishwasher, room: kitchen, status: sensor.dishwasher_status, door: binary_sensor.dishwasher_door, actions: [{ name: Start, action: script.matrix_ps5 }] }
+  - { name: Washer, room: empty, status: sensor.dishwasher_status }
 seasonal:
   - { name: Tree, room: bed, from: 11-15, until: 01-10, lights: [light.tree] }
   - { name: Bad, from: 13-01, until: 01-10, lights: [light.tree] }
@@ -84,10 +90,11 @@ panels:
 	h, problems := Render(m, d, Config{})
 	// Rendered the same whatever the day, but the season flag is today's: check it against the clock.
 	eq(t, "attention", *h.Summary.Attention, Attention{BatteryLow: 20, Offline: true, OpenTooLong: map[string]int{"garage": 30, "doors": 10, "car_doors": 10}, Include: []string{"binary_sensor.smoke"}})
-	eq(t, "water", *h.Energy.Water, Water{Flow: "sensor.water_flow", Today: "sensor.water_today", Valve: &Valve{Entity: "switch.water_valve", OpenOnly: true}, Mode: "sensor.water_mode", Alerts: []string{"binary_sensor.leak_laundry"}})
-	eq(t, "the old readouts are filled from the card", []string{h.Energy.WaterFlow, h.Energy.WaterToday}, []string{"sensor.water_flow", "sensor.water_today"})
+	eq(t, "water", *h.Energy.Water, Water{Flow: "sensor.water_flow", Today: "sensor.water_today", Date: "sensor.water_last_day", Valve: &Valve{Entity: "switch.water_valve", OpenOnly: true}, Mode: "sensor.water_mode", Alerts: []string{"binary_sensor.leak_laundry"}})
+	eq(t, "the old readouts are filled from the card", []string{h.Energy.WaterFlow, h.Energy.WaterToday, h.Energy.WaterDate}, []string{"sensor.water_flow", "sensor.water_today", "sensor.water_last_day"})
 	eq(t, "the valve is under security", h.Security.Valves, []Valve{{Entity: "switch.water_valve", OpenOnly: true}})
-	eq(t, "thermostats", h.Climate.Thermostats, []Thermostat{{Entity: "climate.hall", Serves: []string{"kitchen", "shed"}}})
+	eq(t, "thermostats", h.Climate.Thermostats, []Thermostat{{Entity: "climate.hall", Serves: []string{"kitchen", "shed"}},
+		{Entity: "climate.downstairs", Serves: []string{}, Action: "setpoint"}, {Entity: "climate.fridge", Serves: []string{}}})
 	eq(t, "bands", h.Climate.Bands["co2"], Band{900, 1300})
 	eq(t, "air", h.Climate.Air, []Air{{Room: "kitchen", CO2: "sensor.kitchen_co2"}})
 	var kitchen, shed Room
@@ -104,7 +111,18 @@ panels:
 		t.Errorf("serves: kitchen %v, shed %v", kitchen.Entities, shed.Entities)
 	}
 	eq(t, "appliances", h.Appliances, []Appliance{{Name: "Dishwasher", Room: "kitchen", Status: "sensor.dishwasher_status", Door: "binary_sensor.dishwasher_door", Finished: defaultFinished,
-		Actions: []RemoteButton{{Name: "Start", Action: Action{Domain: "script", Service: "turn_on", Entity: "script.matrix_ps5"}}}}})
+		Actions: []RemoteButton{{Name: "Start", Action: Action{Domain: "script", Service: "turn_on", Entity: "script.matrix_ps5"}}}},
+		{Name: "Washer", Room: "empty", Status: "sensor.dishwasher_status", Finished: defaultFinished}})
+	// The "Empty" area has nothing of its own; the washer gives it a reason to show.
+	shown := false
+	for _, r := range h.Rooms {
+		if r.ID == "empty" {
+			shown = true
+		}
+	}
+	if !shown {
+		t.Error("a room with only an appliance is not shown")
+	}
 	if len(h.Seasonal) != 1 || h.Seasonal[0].Room != "bed" || h.Seasonal[0].Active != inSeason(time.Now(), 1115, 110) {
 		t.Errorf("seasonal: %+v", h.Seasonal)
 	}
@@ -125,6 +143,7 @@ panels:
 		"attention: open_too_long knows garage, doors and car_doors, not windows",
 		"climate: bands knows co2, pm2_5, voc and aqi, not smoke",
 		"climate: no room attic",
+		"climate: climate.fridge: action is reported or setpoint, not guess",
 		"air: an entry needs a room",
 		"seasonal Bad: needs a name, from and until as month-day (11-15)",
 		"vehicle Car: Home Assistant has no sensor.nothing",

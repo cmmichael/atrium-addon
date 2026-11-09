@@ -214,6 +214,7 @@ energy:
   water:                            # a card on Energy; replaces water_flow and water_today, which still read
     flow: sensor.water_flow
     today: sensor.water_today
+    date: sensor.water_last_data_date   # a timestamp or date sensor: the day `today` is for, when the meter's data arrives days late
     week: sensor.water_week
     month: sensor.water_month
     pressure: sensor.water_pressure
@@ -223,9 +224,11 @@ energy:
     alerts: [binary_sensor.leak_laundry, binary_sensor.leak_kitchen]   # also hazards
 
 climate:
-  thermostats:                      # a thermostat that serves rooms it is not in
+  thermostats:                      # a thermostat that serves rooms it is not in, or whose "heating" needs checking
     - entity: climate.hallway
       serves: [family_room, living_room, dining_room]   # area ids; the room's own thermostat override still wins
+    - entity: climate.bathroom_floor
+      action: setpoint              # count a reported "heating" only while the target is above the current temperature; default: reported
   air:                              # air quality per room; a readout in the room, a Home card while any band is poor
     - room: kitchen
       co2: sensor.kitchen_co2
@@ -335,9 +338,13 @@ panels:                             # the escape hatch: a card of rows and actio
 The add-on emits each section under the same key in `house.json`, resolved: entity ids kept, names from `names`
 or Home Assistant, units from the sensors, actions as `{domain, service, entity, data}`, `openOnly` and `readOnly`
 as flags on the items they name. Items Home Assistant does not have are dropped and reported, as everywhere.
-`water` also fills `energy.waterFlow` and `energy.waterToday` so an older app keeps its two readouts; the valve
-appears again under `security.valves` with its flag (`water.modeSettable` says whether the mode is a select); `climate.thermostats` adds the thermostat to every room
-it serves (`rooms[].thermostat` when the room has none of its own); `appliances[]` carry their room id; `air[]` their
+`water` also fills `energy.waterFlow` and `energy.waterToday` so an older app keeps its two readouts, and
+`energy.waterDate` from `date`; the valve appears again under `security.valves` with its flag (`water.modeSettable` says whether the mode is a select); `climate.thermostats` adds the thermostat to every room
+it serves (`rooms[].thermostat` when the room has none of its own) and carries `action: setpoint` through: the
+apps then take Home Assistant's `hvac_action` at its word only while the setpoint agrees, so a floor that says
+"heating" whenever its program is on shows as heating while its target is above the current temperature and as
+idle otherwise (cooling likewise, below the target; in heat_cool mode against the low and high setpoints). The
+tile, the thermostat sheet and the Climate count all read it that way; the add-on itself changes nothing; `appliances[]` carry their room id; `air[]` their
 room id and the bands that apply; `day.drives[].days` arrive as a list of ISO weekdays; `seasonal[]` carry a boolean
 `active` for today. Nothing in these sections is guessed by the add-on: they come from the file alone, and `atrium_auto`
 prints them empty.
@@ -382,7 +389,11 @@ camera's or doorbell's own speaker. Music Assistant's copies of players that alr
 - **energy**: a power sensor named solar/pv/production, one named consumption/house/home/load/main panel/total,
   the day's energy sensors likewise, the twelve circuits drawing the most right now as consumers, the first
   flow-rate sensor as water flow and a daily water sensor as water today. Never the grid or battery keys: a sign
-  convention cannot be read off a name.
+  convention cannot be read off a name. A utility's portal integration (a water company's, say) publishes each
+  day's total days after the day; the apps caption such a figure "today" only while the sensor changed today,
+  and with the day it covers once the file names a timestamp or date sensor from the same integration as
+  `water.date` (often called "last data date" or "reading date"). Write that key whenever the integration has
+  one: it is what makes a late figure honest.
 - **music**: media players with device class `speaker`, less the exclusions above. When Music Assistant is there,
   each speaker is paired with its Music Assistant player by device name, for search, favourites, play and moving
   music between rooms.

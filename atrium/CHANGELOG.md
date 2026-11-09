@@ -3,6 +3,26 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.12
+
+- Water: a meter whose data arrives days late (a water company's portal integration) is no longer captioned
+  "today". The version 3 water card takes `date`, a timestamp or date sensor for the day the `today` figure
+  covers, and the apps caption the figure with that day ("Thursday", "yesterday"); without it, a figure whose
+  sensor last changed before today reads "as of Sunday" rather than "today".
+
+## 0.9.11
+
+- `climate.thermostats[].action: setpoint` (version 3): for a thermostat that reports "heating" whenever its
+  program is on (underfloor heating, some thermostatic valves), the apps count it as heating only while its
+  target is above the current temperature, and as cooling only while below. Opt-in per entity; the default
+  stays Home Assistant's `hvac_action` as reported. The add-on passes the key through to `house.json`; the web
+  app in this release reads it, and the iOS app from its next build.
+
+## 0.9.10
+
+- A room with no tiles of its own still shows when the version 3 file puts an appliance, air readings, a panel
+  or seasonal lights in it: a laundry room is its washer and dryer.
+
 ## 0.9.9
 
 - The layout file's version 3 (`docs/mapping.md`, "Version 3"): the house beyond rooms. New sections, all

@@ -135,6 +135,9 @@ type Energy struct {
 	Consumers    []string `json:"consumers"`
 	WaterFlow    string   `json:"waterFlow,omitempty"`
 	WaterToday   string   `json:"waterToday,omitempty"`
+	// The day waterToday's figure is for (a timestamp or date sensor), when the meter's data arrives days late;
+	// the apps caption the figure with that day instead of "today". From water.date.
+	WaterDate string `json:"waterDate,omitempty"`
 	// Version 3: the water card.
 	Water *Water `json:"water,omitempty"`
 }

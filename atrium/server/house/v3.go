@@ -24,6 +24,7 @@ type AttentionMapping struct {
 type WaterMapping struct {
 	Flow        string        `yaml:"flow,omitempty"`
 	Today       string        `yaml:"today,omitempty"`
+	Date        string        `yaml:"date,omitempty"` // the day the today figure covers, for a meter whose data arrives late
 	Week        string        `yaml:"week,omitempty"`
 	Month       string        `yaml:"month,omitempty"`
 	Pressure    string        `yaml:"pressure,omitempty"`
@@ -47,6 +48,7 @@ type ClimateMapping struct {
 type ThermostatMapping struct {
 	Entity string   `yaml:"entity"`
 	Serves []string `yaml:"serves,omitempty"`
+	Action string   `yaml:"action,omitempty"` // how to read hvac_action: reported (default) | setpoint
 }
 
 type AirMapping struct {
@@ -231,6 +233,7 @@ type Attention struct {
 type Water struct {
 	Flow         string   `json:"flow,omitempty"`
 	Today        string   `json:"today,omitempty"`
+	Date         string   `json:"date,omitempty"` // a timestamp or date sensor: the day today's figure is for
 	Week         string   `json:"week,omitempty"`
 	Month        string   `json:"month,omitempty"`
 	Pressure     string   `json:"pressure,omitempty"`
@@ -255,6 +258,9 @@ type Climate struct {
 type Thermostat struct {
 	Entity string   `json:"entity"`
 	Serves []string `json:"serves"`
+	// "setpoint": the apps count a reported "heating" only while the target is above the current temperature
+	// (a "cooling" only while it is below). Absent: hvac_action as Home Assistant reports it.
+	Action string `json:"action,omitempty"`
 }
 
 type Air struct {
@@ -469,7 +475,7 @@ func renderV3(m Mapping, h *House, d Dump, exists func(where, id string) string,
 
 	if m.Energy != nil && m.Energy.Water != nil {
 		wm := m.Energy.Water
-		w := &Water{Flow: exists("water", wm.Flow), Today: exists("water", wm.Today), Week: exists("water", wm.Week), Month: exists("water", wm.Month),
+		w := &Water{Flow: exists("water", wm.Flow), Today: exists("water", wm.Today), Date: exists("water", wm.Date), Week: exists("water", wm.Week), Month: exists("water", wm.Month),
 			Pressure: exists("water", wm.Pressure), Temperature: exists("water", wm.Temperature), Alerts: each("water", wm.Alerts)}
 		if mode := exists("water", wm.Mode); mode != "" {
 			w.Mode, w.ModeSettable = mode, domain(mode) == "select" || domain(mode) == "input_select"
@@ -492,6 +498,7 @@ func renderV3(m Mapping, h *House, d Dump, exists func(where, id string) string,
 		if h.Energy.WaterToday == "" {
 			h.Energy.WaterToday = w.Today
 		}
+		h.Energy.WaterDate = w.Date
 	}
 
 	if c := m.Climate; c != nil {
@@ -516,6 +523,13 @@ func renderV3(m Mapping, h *House, d Dump, exists func(where, id string) string,
 				continue
 			}
 			th := Thermostat{Entity: e, Serves: []string{}}
+			switch t.Action {
+			case "", "reported":
+			case "setpoint":
+				th.Action = "setpoint"
+			default:
+				problem("climate: %s: action is reported or setpoint, not %s", e, t.Action)
+			}
 			for _, r := range t.Serves {
 				if roomOf("climate", r) != "" {
 					th.Serves = append(th.Serves, r)
@@ -697,6 +711,27 @@ func renderV3(m Mapping, h *House, d Dump, exists func(where, id string) string,
 		}
 		h.Panels = append(h.Panels, pn)
 	}
+}
+
+// v3Rooms is every room the version 3 sections place something in: such a room shows even with no tiles of its own.
+func (m Mapping) v3Rooms() map[string]bool {
+	out := map[string]bool{}
+	for _, a := range m.Appliances {
+		out[a.Room] = true
+	}
+	for _, p := range m.Panels {
+		out[p.Room] = true
+	}
+	for _, s := range m.Seasonal {
+		out[s.Room] = true
+	}
+	if m.Climate != nil {
+		for _, a := range m.Climate.Air {
+			out[a.Room] = true
+		}
+	}
+	delete(out, "")
+	return out
 }
 
 // monthDay parses "11-15" into 1115; 0 when it is not one.

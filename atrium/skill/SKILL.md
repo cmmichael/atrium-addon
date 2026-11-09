@@ -89,6 +89,11 @@ page or the app for the picture) and add overrides only where they are wrong. Ch
   area) is worth a look: assign them an area in Home Assistant if they belong somewhere, or hide the room.
 - **Thermostats.** A thermostat sits where the installer put it, not where it heats: set `thermostat:` on the
   room it belongs with. A second `climate.*` in an area is usually a fridge, a wine cooler or a car: hide it.
+  Underfloor heating and some thermostatic valves report `hvac_action: heating` whenever their program is on,
+  not only while they heat: ask the owner, or compare `hvac_action` with `current_temperature` and `temperature`
+  in a live state (a "heating" floor already a degree above its target gives it away). For each such entity
+  write `{ entity: climate.x, action: setpoint }` under `climate.thermostats` (version 3), and the apps count it
+  as heating only while its target is above the current temperature.
 - **Readouts.** Each room's temperature is the area's own pick, else a temperature sensor there with a plausible
   reading — which can be a pipe or an appliance. Where it is wrong, name the right sensor, or `temperature: none`
   (likewise `humidity`, and `thermostat: none` for a room that should show no thermostat at all).

@@ -293,7 +293,9 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 		if room.Entities == nil {
 			room.Entities = []string{}
 		}
-		if rc.Hidden || rm.Hide.All || len(ids) == 0 {
+		// A room with no tiles of its own still shows when the file puts an appliance, air readings or a panel in
+		// it (a laundry room is its washer and dryer).
+		if rc.Hidden || rm.Hide.All || (len(ids) == 0 && !m.v3Rooms()[ar.id]) {
 			h.HiddenRooms = append(h.HiddenRooms, room) // hidden, or nothing to show: the editor can bring it back
 			continue
 		}
