@@ -23,6 +23,20 @@ var kiosks = set("browser_mod", "fully_kiosk", "wallpanel")
 var appliances = set("miele", "home_connect", "lg_thinq", "bosch_shc", "electrolux", "whirlpool")
 
 var entryClasses = set("door", "window", "garage_door", "opening", "gate")
+
+// applianceWords mark a door sensor as an appliance's, not the house's.
+var applianceWords = []string{"dryer", "washer", "washing", "fridge", "refrigerator", "freezer", "oven", "dishwasher", "microwave", "wine", "cooler", "safe"}
+
+func applianceNamed(name string) bool {
+	n := strings.ToLower(name)
+	for _, w := range applianceWords {
+		if strings.Contains(n, w) {
+			return true
+		}
+	}
+	return false
+}
+
 var hazardClasses = set("smoke", "gas", "carbon_monoxide", "moisture", "safety")
 
 // shows says whether a room shows this entity of its own accord: what a person walks in and touches.
@@ -339,7 +353,9 @@ func (x *index) autoSecurity() SecurityMapping {
 		}
 	}
 	for _, b := range x.live("binary_sensor") {
-		if entryClasses[b.class] && !vehicles[b.platform] {
+		// An appliance's door (the dryer's, the fridge's) is not a way into the house: it stays off the entries,
+		// so a door left open all day is not an alert. The appliances section names it instead.
+		if entryClasses[b.class] && !vehicles[b.platform] && !applianceNamed(b.name) && !applianceNamed(x.deviceName[b.device]) {
 			entries = append(entries, b)
 		}
 	}

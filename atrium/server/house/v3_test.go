@@ -22,7 +22,10 @@ func TestVersionThreeSectionsAreResolved(t *testing.T) {
 	add("binary_sensor.leak_laundry", "off", `{"device_class":"moisture"}`)
 	add("sensor.kitchen_co2", "650", `{"unit_of_measurement":"ppm"}`)
 	add("sensor.dishwasher_status", "running", `{}`)
-	add("binary_sensor.dishwasher_door", "off", `{}`)
+	add("binary_sensor.dishwasher_door", "off", `{"device_class":"door"}`)
+	add("binary_sensor.laundry_dryer_door", "on", `{"device_class":"door","friendly_name":"Tumble dryer Door"}`)
+	add("conversation.gemini", "unknown", `{}`)
+	add("conversation.not_an_agent", "unknown", `{}`)
 	add("light.tree", "off", `{}`)
 	add("device_tracker.car", "home", `{}`)
 	add("sensor.car_battery", "64", `{"unit_of_measurement":"%"}`)
@@ -42,6 +45,7 @@ func TestVersionThreeSectionsAreResolved(t *testing.T) {
 	m, err := ParseMapping([]byte(strings.TrimSpace(`
 version: 3
 home:
+  ask: conversation.gemini
   attention: { battery_low: 20, offline: true, open_too_long: { garage: 30, windows: 5 }, include: [binary_sensor.smoke, binary_sensor.nothing] }
 energy:
   water:
@@ -108,6 +112,12 @@ routines:
 	eq(t, "water", *h.Energy.Water, Water{Flow: "sensor.water_flow", Today: "sensor.water_today", Date: "sensor.water_last_day", Valve: &Valve{Entity: "switch.water_valve", OpenOnly: true}, Mode: "sensor.water_mode", Alerts: []string{"binary_sensor.leak_laundry"}})
 	eq(t, "the old readouts are filled from the card", []string{h.Energy.WaterFlow, h.Energy.WaterToday, h.Energy.WaterDate}, []string{"sensor.water_flow", "sensor.water_today", "sensor.water_last_day"})
 	eq(t, "the valve is under security", h.Security.Valves, []Valve{{Entity: "switch.water_valve", OpenOnly: true}})
+	eq(t, "the ask agent", h.Ask, "conversation.gemini")
+	for _, id := range h.Security.Entries {
+		if id == "binary_sensor.dishwasher_door" || id == "binary_sensor.laundry_dryer_door" {
+			t.Errorf("an appliance's door is among the entries: %s", id)
+		}
+	}
 	eq(t, "tariff", *h.Energy.Tariff, Tariff{Net: "sensor.bill_net", PeriodDays: 60, PeriodStart: "2026-08-27", Tiers: []Tier{{700, 0.26304}, {2100, 0.32164}, {0, 0.40866}}, Fixed: 45.40, Tax: 0.10, Currency: "$", Estimate: true,
 		Seasons: []TariffSeason{{Name: "high", From: "06-01", To: "09-30", Tiers: []Tier{{700, 0.26304}, {2100, 0.32164}, {0, 0.40866}}}, {Name: "low", From: "10-01", To: "05-31", Tiers: []Tier{{700, 0.2729}, {0, 0.3315}}}}})
 	eq(t, "thermostats", h.Climate.Thermostats, []Thermostat{{Entity: "climate.hall", Serves: []string{"kitchen", "shed"}},

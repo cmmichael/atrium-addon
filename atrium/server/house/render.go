@@ -432,6 +432,14 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 	h.Summary.IndoorTemp = exists("home", home.IndoorTemperature)
 	h.Summary.Alarm = exists("home", home.Alarm)
 	h.Summary.People = existing("home", home.People)
+	// The conversation agent the apps ask; without one, they use Home Assistant's default.
+	if ask := exists("home", home.Ask); ask != "" {
+		if domain(ask) != "conversation" {
+			problem("home: ask %s is a %s, not a conversation agent", ask, domain(ask))
+		} else {
+			h.Ask = ask
+		}
+	}
 
 	tab := func(name string) bool { v, ok := c.Tabs[name]; return !ok || v }
 	if s := security; s != nil && tab("security") {
@@ -596,6 +604,22 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 	}
 	// Version 3: the house beyond rooms, from the file alone.
 	renderV3(m, &h, d, exists, func(id string) string { return firstOf(h.Names[id], m.Names[id], haName(id)) }, problem, time.Now())
+	// A door the appliances section claims is not an entry, whatever it is called.
+	if len(h.Appliances) > 0 && len(h.Security.Entries) > 0 {
+		doors := map[string]bool{}
+		for _, a := range h.Appliances {
+			if a.Door != "" {
+				doors[a.Door] = true
+			}
+		}
+		kept := h.Security.Entries[:0]
+		for _, id := range h.Security.Entries {
+			if !doors[id] {
+				kept = append(kept, id)
+			}
+		}
+		h.Security.Entries = kept
+	}
 	// Widgets: the file's, else Scenes, Home and one per room. Last, since they point at what is above.
 	widgets := m.Widgets
 	if widgets == nil {

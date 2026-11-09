@@ -100,6 +100,7 @@ type VehicleMapping struct {
 	ChargerPower      string          `yaml:"charger_power,omitempty"`
 	ChargeLimit       string          `yaml:"charge_limit,omitempty"`
 	ChargeSwitch      string          `yaml:"charge_switch,omitempty"`
+	Plugged           string          `yaml:"plugged,omitempty"` // a binary sensor on while a cable is in
 	EnergyAdded       string          `yaml:"energy_added,omitempty"`
 	Lock              string          `yaml:"lock,omitempty"`
 	Doors             []string        `yaml:"doors,omitempty"`
@@ -326,6 +327,7 @@ type Vehicle struct {
 	ChargerPower      string         `json:"chargerPower,omitempty"`
 	ChargeLimit       string         `json:"chargeLimit,omitempty"`
 	ChargeSwitch      string         `json:"chargeSwitch,omitempty"`
+	Plugged           string         `json:"plugged,omitempty"` // a binary sensor on while a cable is in
 	EnergyAdded       string         `json:"energyAdded,omitempty"`
 	Lock              string         `json:"lock,omitempty"`
 	Doors             []string       `json:"doors,omitempty"`
@@ -689,7 +691,7 @@ func renderV3(m Mapping, h *House, d Dump, exists func(where, id string) string,
 		}
 		where := "vehicle " + v.Name
 		ve := Vehicle{Name: v.Name, Tracker: exists(where, v.Tracker), Battery: exists(where, v.Battery), Fuel: exists(where, v.Fuel), Range: exists(where, v.Range), Low: v.Low,
-			Charging: exists(where, v.Charging), ChargerPower: exists(where, v.ChargerPower), ChargeLimit: exists(where, v.ChargeLimit), ChargeSwitch: exists(where, v.ChargeSwitch),
+			Charging: exists(where, v.Charging), ChargerPower: exists(where, v.ChargerPower), ChargeLimit: exists(where, v.ChargeLimit), ChargeSwitch: exists(where, v.ChargeSwitch), Plugged: exists(where, v.Plugged),
 			EnergyAdded: exists(where, v.EnergyAdded), Lock: exists(where, v.Lock), Doors: each(where, v.Doors), Windows: each(where, v.Windows), Openings: each(where, v.Openings),
 			Climate: exists(where, v.Climate), InsideTemperature: exists(where, v.InsideTemperature), Tyres: each(where, v.Tyres), Warnings: each(where, v.Warnings),
 			Awake: exists(where, v.Awake), Actions: buttons(where, v.Actions)}

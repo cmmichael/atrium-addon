@@ -3,6 +3,13 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.24
+
+- `home.ask`: the conversation agent the apps talk to ("Ask the house": a question or an order in plain words,
+  answered by Home Assistant's Assist through the agent named, else the default one).
+- `vehicles[].plugged`: a binary sensor on while a charging cable is in, for the solar charging nudge; without it
+  the apps read the wall connector's status, else the car's charging state.
+
 ## 0.9.23
 
 - `energy.tariff.seasons`: tiers that change with the season (MM-DD dates, wrapping the year); the apps pick the

@@ -203,6 +203,7 @@ inside its dates; `vehicles` is a tab of its own; `pool` a card on Energy (or Ho
 version: 3
 
 home:
+  ask: conversation.google_ai_conversation   # the agent "Ask the house" talks to (a conversation.* entity); default: Home Assistant's own
   attention:                        # what "needs attention" counts, on top of the built-in alerts
     battery_low: 20                 # percent: a battery sensor at or under this
     offline: true                   # devices whose entities are unavailable
@@ -291,6 +292,7 @@ vehicles:                           # a tab; one card per vehicle
     charger_power: sensor.car_charger_power
     charge_limit: number.car_charge_limit
     charge_switch: switch.car_charger
+    plugged: binary_sensor.car_charge_cable   # on while a cable is in; else the charger's status, else the car's charging state say so
     energy_added: sensor.car_energy_added
     lock: lock.car
     doors: [binary_sensor.car_door_fl, binary_sensor.car_door_fr]
@@ -304,9 +306,9 @@ vehicles:                           # a tab; one card per vehicle
     awake: binary_sensor.car_awake  # readings are stale while a car sleeps; the card says "as of"
     actions: [{ name: Flash, icon: lightbulb, action: button.car_flash }]
     charger:                        # a wall charger of its own
-      status: sensor.wall_charger_status
-      power: sensor.wall_charger_power
-      session_energy: sensor.wall_charger_session
+      status: sensor.wall_charger_status   # also tells the apps a cable is in: with charge_switch, tracker, battery and charge_limit,
+      power: sensor.wall_charger_power     # Home nudges "Solar is exporting 1.6 kW: charge the car now" while the house exports
+      session_energy: sensor.wall_charger_session   # over 1.4 kW and the car is home, plugged in, idle and under its limit
 
 pool:                               # a card: water, pump, spa, heaters, lights
   temperature: sensor.pool_temperature

@@ -182,16 +182,18 @@ type Tier struct {
 
 // House is the layout.
 type House struct {
-	Name     string            `json:"name"`
-	Floors   []Floor           `json:"floors"`
-	Rooms    []Room            `json:"rooms"`
-	Scenes   []SceneRef        `json:"scenes"`
-	Summary  Summary           `json:"summary"`
-	Security Security          `json:"security"`
-	Energy   Energy            `json:"energy"`
-	Speakers []string          `json:"speakers"`
-	Names    map[string]string `json:"names"`
-	BuiltAt  string            `json:"builtAt,omitempty"` // when the add-on built this, RFC 3339
+	Name     string     `json:"name"`
+	Floors   []Floor    `json:"floors"`
+	Rooms    []Room     `json:"rooms"`
+	Scenes   []SceneRef `json:"scenes"`
+	Summary  Summary    `json:"summary"`
+	Security Security   `json:"security"`
+	Energy   Energy     `json:"energy"`
+	Speakers []string   `json:"speakers"`
+	// The conversation agent the apps ask (home.ask), a conversation.* entity; empty: Home Assistant's default.
+	Ask     string            `json:"ask,omitempty"`
+	Names   map[string]string `json:"names"`
+	BuiltAt string            `json:"builtAt,omitempty"` // when the add-on built this, RFC 3339
 	// "custom": the add-on's defaults with atrium.yaml on top; "default": the defaults alone (no file, or a
 	// viewer asked for them with ?layout=default to compare).
 	Layout string `json:"layout,omitempty"`

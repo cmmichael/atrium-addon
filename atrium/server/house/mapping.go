@@ -354,10 +354,13 @@ type HomeMapping struct {
 	People             []string `yaml:"people,omitempty"`
 	// Version 3: what "needs attention" counts.
 	Attention *AttentionMapping `yaml:"attention,omitempty"`
+	// The conversation agent the apps ask ("Ask the house"): a conversation.* entity. Without it the apps use
+	// Home Assistant's default agent.
+	Ask string `yaml:"ask,omitempty"`
 }
 
 func (h HomeMapping) set() bool {
-	return h.Weather != "" || h.OutdoorTemperature != "" || h.IndoorTemperature != "" || h.Alarm != "" || len(h.People) > 0 || h.Attention != nil
+	return h.Weather != "" || h.OutdoorTemperature != "" || h.IndoorTemperature != "" || h.Alarm != "" || len(h.People) > 0 || h.Attention != nil || h.Ask != ""
 }
 
 type SecurityMapping struct {
