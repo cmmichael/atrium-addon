@@ -3,6 +3,17 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.25
+
+- The web app catches up with the iPhone app: what needs a look on Home (alerts, with the camera and a way to
+  dismiss), the check before leaving and the doors on arriving, routines and seasonal switches, the Day screen
+  (agenda, drives, reminders, schedules), Vehicles, appliances and air quality in their rooms, the pool and water
+  cards with the shutoff valve (asked twice before it closes), custom panels, and a Health screen.
+- The set-up page shows the add-on's health: its version and uptime, whether Home Assistant answers, the tailnet,
+  alerts, and the entities the house shows that are unavailable.
+- Ask the house, in the web app: when Assist cannot find a device, the answer says to expose it to Assist.
+- A reminder's detail may name an entity; the web app then shows that entity's words.
+
 ## 0.9.24
 
 - `home.ask`: the conversation agent the apps talk to ("Ask the house": a question or an order in plain words,

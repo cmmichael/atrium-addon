@@ -42,7 +42,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.24"
+const version = "0.9.25"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
