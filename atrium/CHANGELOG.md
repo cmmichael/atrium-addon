@@ -3,6 +3,15 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.15
+
+- Alerts on the phones, with the app open or not. A Home Assistant automation fires an `atrium_alert` event
+  (title, body, level, the entity, one action such as lock or close, `live: true` for a Live Activity in the
+  Dynamic Island and on the Lock Screen, `clear: true` to withdraw) and the add-on sends it through Apple to every
+  phone that has signed in (`to:` narrows it to some logins). The owner's APNs key goes in the options
+  (`apns_team_id`, `apns_key_id`, `apns_key`); without it, alerts are logged only. The apps register with
+  `POST /atrium/devices`; `GET /atrium/alerts` lists the latest. See DOCS, "Alerts".
+
 ## 0.9.14
 
 - Remotes show readings about the set: its network throughput and its power draw. `remotes[].readouts` names

@@ -119,6 +119,49 @@ Cameras play live in the app and on the web: UniFi Protect through Atrium (so an
 WebRTC from Google. UniFi Protect's events of the last day are under each camera as clips. Nest cameras have no
 still picture, so their tiles show "Live view" until one is opened.
 
+## Alerts
+
+Home Assistant decides what deserves attention; Atrium puts it on every phone, with the app open or not, as a
+notification and, when asked, as a Live Activity in the Dynamic Island and on the Lock Screen until the matter is
+settled. An automation fires one event:
+
+```yaml
+alias: Front door unlocked at night
+triggers:
+  - trigger: state
+    entity_id: lock.front_door
+    to: unlocked
+    for: "00:10:00"
+conditions:
+  - condition: time
+    after: "21:00:00"
+actions:
+  - event: atrium_alert
+    event_data:
+      id: front-door-night            # the same id again replaces the notification; clear: true withdraws it
+      title: Front door unlocked
+      body: Unlocked for ten minutes
+      level: warning                  # info | warning | critical: warning and critical show through Focus modes
+      icon: lock.open                 # an SF Symbol, for the Live Activity
+      entity: lock.front_door         # tapping the notification opens it in the app
+      action: { title: Lock, service: lock.lock, entity: lock.front_door }   # one button under the notification
+      live: true                      # also a Live Activity, until cleared (or eight hours)
+```
+
+A second automation, when the door locks, fires `atrium_alert` with the same `id` and `clear: true`, and the
+notification and the Live Activity go. `to: [someone@example.com]` sends to those logins' phones only.
+`service` with `entity` and optional `data` is any Home Assistant action; the phone runs it through Home
+Assistant with its own sign-in when the button is pressed, without opening the app.
+
+Apple carries the notifications, so the add-on needs an APNs key from the Apple developer account that publishes
+the app: developer.apple.com → Certificates, Identifiers & Profiles → Keys → +, tick *Apple Push Notifications
+service (APNs)*, download the `.p8` file (once; it cannot be downloaded again). In the add-on's Configuration tab
+set `apns_team_id` (Membership details), `apns_key_id` (the key's id) and `apns_key` (the whole contents of the
+`.p8` file, `-----BEGIN PRIVATE KEY-----` to the end). Apple sees the device token, the title and the body; nothing
+else leaves the house, and without a key the events are logged and not sent. The phones register themselves the
+first time the app connects after allowing notifications; `GET /atrium/devices` lists them for administrators,
+`GET /atrium/alerts` the latest alerts.
+
 ## Good to know
 
 - Atrium is its own machine on your tailnet (named `atrium` unless you change it), using Tailscale's `tsnet`

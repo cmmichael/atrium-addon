@@ -75,6 +75,7 @@ func gateway(ha *httptest.Server, caller Identity) *Gateway {
 		Core:       base,
 		Names:      []string{"atrium", "atrium.tail1234.ts.net", "100.64.0.9", "127.0.0.1", "example.com"}, // httptest requests say example.com; real servers 127.0.0.1
 		Supervisor: []string{"172.30.32.2"},
+		alerts:     &alerts{},
 	}
 }
 

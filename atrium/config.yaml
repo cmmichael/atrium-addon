@@ -1,5 +1,5 @@
 name: Atrium
-version: "0.9.14"
+version: "0.9.15"
 slug: atrium
 description: Your house in the Atrium app and on the web, from anywhere, over your tailnet
 url: https://github.com/cmmichael/atrium-addon
@@ -30,6 +30,9 @@ options:
   people: []
   admins: []
   writers: []   # add-on slugs allowed to write the layout, e.g. the Claude Code app (a slug is <repository-hash>_<name>, such as d7e97e69_claudecode)
+  apns_team_id: ""   # alerts to the phones: your Apple developer team id, the APNs key's id and the key itself (the .p8 file's contents); see DOCS
+  apns_key_id: ""
+  apns_key: ""
 schema:
   hostname: str
   auth_key: password?
@@ -42,3 +45,7 @@ schema:
     - str
   writers:
     - str
+  apns_team_id: str?
+  apns_key_id: str?
+  apns_key: password?
+  apns_bundle: str?

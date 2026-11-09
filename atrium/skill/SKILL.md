@@ -178,3 +178,12 @@ Then:
   try to reproduce them in the file.
 - Keep the key order of the contract (`version`, `name`, `floors`, `rooms`, `hide`, `scenes`, `home`, `security`,
   `energy`, `music`, `names`) so the file stays easy to compare across revisions.
+
+## Alerts (add-on 0.9.15 and later)
+
+The layout file does not hold alerts; Home Assistant automations do, and they reach every phone through the
+add-on by firing an `atrium_alert` event (`id`, `title`, `body`, `level`, `entity`, one `action`, `live`, `clear`,
+`to`; the add-on's DOCS, "Alerts", has the shape and an example). When the owner asks for an alert, write the
+automation in Home Assistant and have the settling condition fire the same `id` with `clear: true`. What deserves
+one: an alarm state, a door or garage left unlocked or open late unless the sensor has been unavailable or the
+door has been that way all day, bins not out on collection day, the water shut off, a leak, smoke. Keep them rare.

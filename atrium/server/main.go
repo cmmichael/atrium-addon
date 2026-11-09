@@ -42,7 +42,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.14"
+const version = "0.9.15"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -66,6 +66,11 @@ type Options struct {
 	People   []Person `json:"people"`
 	Admins   []string `json:"admins"`  // may change the layout for everyone, besides the login that signed the machine in
 	Writers  []string `json:"writers"` // add-on slugs that may write the layout from inside Home Assistant (the Claude Code add-on, by default)
+	// Alerts to the phones, through Apple: the owner's APNs key (developer.apple.com → Keys), its id and the team id.
+	APNSTeamID string `json:"apns_team_id"`
+	APNSKeyID  string `json:"apns_key_id"`
+	APNSKey    string `json:"apns_key"`    // the .p8 file's contents
+	APNSBundle string `json:"apns_bundle"` // the app's bundle id; default com.cmmichael.atrium
 }
 
 // Identity is what Tailscale says about the other end of a connection.
@@ -122,6 +127,7 @@ type Gateway struct {
 	homeAsked    time.Time // when Home Assistant was last asked for the name and did not say
 	updateID     string    // the add-on's update entity in Home Assistant, once found (update.go)
 	telemetry    telemetry // the apps' diagnostics (telemetry.go)
+	alerts       *alerts   // the phones that take alerts, and the sending (alerts.go, apns.go)
 	updateAsked  time.Time
 	ownerPending bool // Tailscale has not yet said who signed this machine in (see learn)
 	config       house.Config
@@ -545,6 +551,10 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		g.serveUpdate(w, r, id)
 	case r.URL.Path == "/atrium/telemetry":
 		g.serveTelemetry(w, r, id)
+	case r.URL.Path == "/atrium/devices":
+		g.serveDevices(w, r, id)
+	case r.URL.Path == "/atrium/alerts":
+		g.serveAlerts(w, r, id)
 	case r.URL.Path == "/atrium/config":
 		g.serveConfig(w, r, id)
 	case r.URL.Path == "/atrium/mapping":
@@ -865,6 +875,15 @@ func main() {
 	} else {
 		g.config = cfg
 	}
+	g.alerts = &alerts{path: env("ATRIUM_DEVICES", "/data/devices.json")}
+	if apns, err := newAPNS(opts); err != nil {
+		log.Printf("alerts: %v; alerts are logged only until the options are right", err)
+	} else {
+		g.alerts.apns = apns
+		if apns == nil {
+			log.Printf("alerts: no apns_key in the options; atrium_alert events are logged, not sent to phones")
+		}
+	}
 
 	// For developing the app: no Tailscale, a made-up identity, and any Home Assistant as upstream. Never set in the add-on.
 	if login := os.Getenv("ATRIUM_DEV_LOGIN"); login != "" {
@@ -890,6 +909,17 @@ func main() {
 		g.SkillDir = env("ATRIUM_SKILL", "")
 		g.MappingPath = env("ATRIUM_MAPPING", "")
 		g.Slug = env("ATRIUM_DEV_SLUG", "df84f1fd_atrium") // so the update card can be tried against the mock
+		if os.Getenv("ATRIUM_DEVICES") == "" {
+			g.alerts.path = os.TempDir() + "/atrium-devices.json"
+		}
+		g.alerts.load()
+		go g.watchAlerts()
+		go func() {
+			home := g.homeName(context.Background())
+			g.alerts.mu.Lock()
+			g.alerts.home = home
+			g.alerts.mu.Unlock()
+		}()
 		g.readMapping()
 		go g.watchMapping()
 		switch os.Getenv("ATRIUM_DEV_SETUP") { // lets the panel's set-up card be seen without a tailnet
@@ -933,6 +963,14 @@ func main() {
 	}
 	go g.watchMapping()
 	go g.houseJSON(context.Background()) // the first render before anyone asks
+	g.alerts.load()
+	go g.watchAlerts()
+	go func() {
+		home := g.homeName(context.Background())
+		g.alerts.mu.Lock()
+		g.alerts.home = home
+		g.alerts.mu.Unlock()
+	}()
 
 	// The Home Assistant side: the sidebar panel, through the Supervisor's ingress. Only the Supervisor's own
 	// address is believed on that port (resolved once; 172.30.32.2 is its usual address).
