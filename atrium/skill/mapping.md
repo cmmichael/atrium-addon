@@ -238,6 +238,9 @@ energy:
     estimate: true                  # the meter is the house's own, not the utility's: the apps say "estimate"
     delivered: sensor.bill_delivered   # optional, shown beside the net figure
     received: sensor.bill_received
+    seasons:                        # tiers by season, when the utility changes them; the tiers above serve dates no season covers
+      - { name: high, from: "06-01", to: "09-30", tiers: [{ up_to: 700, rate: 0.26304 }, { up_to: 2100, rate: 0.32164 }, { rate: 0.40866 }] }
+      - { name: low, from: "10-01", to: "05-31", tiers: [{ up_to: 700, rate: 0.2729 }, { rate: 0.3315 }] }   # wraps the year
 
 climate:
   thermostats:                      # a thermostat that serves rooms it is not in, or whose "heating" needs checking

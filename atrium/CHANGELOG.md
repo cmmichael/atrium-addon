@@ -3,6 +3,11 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.23
+
+- `energy.tariff.seasons`: tiers that change with the season (MM-DD dates, wrapping the year); the apps pick the
+  season by the day. The top-level tiers serve the dates no season covers.
+
 ## 0.9.22
 
 - `energy.tariff`: the electricity tariff (tiers of a rate per kWh over the billing period, a fixed charge, a tax)

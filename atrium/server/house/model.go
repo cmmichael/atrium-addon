@@ -164,6 +164,15 @@ type Tariff struct {
 	Tax         float64 `json:"tax,omitempty"`
 	Currency    string  `json:"currency"`
 	Estimate    bool    `json:"estimate,omitempty"`
+	// Seasons with their own tiers (MM-DD, inclusive, wrapping the year); the apps pick by the day.
+	Seasons []TariffSeason `json:"seasons,omitempty"`
+}
+
+type TariffSeason struct {
+	Name  string `json:"name,omitempty"`
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Tiers []Tier `json:"tiers"`
 }
 
 type Tier struct {

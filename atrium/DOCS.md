@@ -176,7 +176,10 @@ first time the app connects after allowing notifications; `GET /atrium/devices` 
 - When a newer add-on is published (or the app needs one), the app's Home screen says so, and the owner or an
   administrator can press **Update now** there, over Tailscale too. The add-on asks Home Assistant's own update
   entity for the add-on to install it (`update.install`), as pressing Update in Home Assistant would; Atrium
-  restarts and the app reconnects. The add-on asks the Supervisor for nothing more than before.
+  restarts and the app reconnects. The add-on asks the Supervisor for nothing more than before. When a published
+  version is not offered (the store still shows the old one after a reload or a repository repair, though its
+  checkout on disk has the new `config.yaml`), restart the Supervisor (`ha supervisor restart`): its store keeps
+  the add-on's data in memory until then.
 - Nothing inside Home Assistant is changed: no custom integration, no change to its sign-in.
 - The app sends its diagnostics here and nowhere else (Settings → Diagnostics in the app turns it off): when it
   launched and why, when it went to the background and came back, how long each connection took and why it

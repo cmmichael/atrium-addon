@@ -416,6 +416,16 @@ type TariffMapping struct {
 	Tax         float64       `yaml:"tax,omitempty"`      // a fraction of the whole: 0.10 for ten percent
 	Currency    string        `yaml:"currency,omitempty"` // the sign, default $
 	Estimate    bool          `yaml:"estimate,omitempty"` // the meter is not the utility's: the apps say "estimate"
+	// Seasons with tiers of their own, by MM-DD dates that may wrap the year; the tiers above serve the dates no
+	// season covers (and may be left out when the seasons cover the year).
+	Seasons []TariffSeasonMapping `yaml:"seasons,omitempty"`
+}
+
+type TariffSeasonMapping struct {
+	Name  string        `yaml:"name,omitempty"`
+	From  string        `yaml:"from"` // MM-DD
+	To    string        `yaml:"to"`   // MM-DD, inclusive
+	Tiers []TierMapping `yaml:"tiers"`
 }
 
 type TierMapping struct {

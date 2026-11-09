@@ -536,24 +536,43 @@ func renderV3(m Mapping, h *House, d Dump, exists func(where, id string) string,
 				t.Currency = "$"
 			}
 			ok := true
-			if len(tm.Tiers) == 0 {
-				problem("tariff: no tiers; one with just a rate is a flat tariff")
-				ok = false
+			// tiers checks one list: rates above zero, each up_to above the one before, none on the last.
+			tiers := func(where string, list []TierMapping) []Tier {
+				out := []Tier{}
+				if len(list) == 0 {
+					problem("%s: no tiers; one with just a rate is a flat tariff", where)
+					ok = false
+				}
+				for i, tier := range list {
+					if tier.Rate <= 0 {
+						problem("%s: tier %d has no rate", where, i+1)
+						ok = false
+					}
+					last := i == len(list)-1
+					if !last && (tier.UpTo <= 0 || (i > 0 && tier.UpTo <= list[i-1].UpTo)) {
+						problem("%s: tier %d needs an up_to above the tier before it (only the last tier has none)", where, i+1)
+						ok = false
+					}
+					if last {
+						tier.UpTo = 0
+					}
+					out = append(out, Tier{UpTo: tier.UpTo, Rate: tier.Rate})
+				}
+				return out
 			}
-			for i, tier := range tm.Tiers {
-				if tier.Rate <= 0 {
-					problem("tariff: tier %d has no rate", i+1)
+			if len(tm.Tiers) > 0 || len(tm.Seasons) == 0 {
+				t.Tiers = tiers("tariff", tm.Tiers)
+			}
+			for i, s := range tm.Seasons {
+				where := fmt.Sprintf("tariff: season %d", i+1)
+				if s.Name != "" {
+					where = "tariff: season " + s.Name
+				}
+				if monthDay(s.From) == 0 || monthDay(s.To) == 0 {
+					problem("%s: from and to are MM-DD dates", where)
 					ok = false
 				}
-				last := i == len(tm.Tiers)-1
-				if !last && (tier.UpTo <= 0 || (i > 0 && tier.UpTo <= tm.Tiers[i-1].UpTo)) {
-					problem("tariff: tier %d needs an up_to above the tier before it (only the last tier has none)", i+1)
-					ok = false
-				}
-				if last {
-					tier.UpTo = 0
-				}
-				t.Tiers = append(t.Tiers, Tier{UpTo: tier.UpTo, Rate: tier.Rate})
+				t.Seasons = append(t.Seasons, TariffSeason{Name: s.Name, From: s.From, To: s.To, Tiers: tiers(where, s.Tiers)})
 			}
 			if tm.PeriodStart != "" {
 				if _, err := time.Parse("2006-01-02", tm.PeriodStart); err != nil {
