@@ -177,13 +177,16 @@ func TestWithoutAnAPNSKeyAlertsAreLoggedOnly(t *testing.T) {
 	if a.recent[0].ID != "bins-out" {
 		t.Errorf("the id from the title: %q", a.recent[0].ID)
 	}
-	for svc, want := range map[string]string{"lock.lock": "atrium.lock", "cover.close_cover": "atrium.close", "alarm_control_panel.alarm_arm_away": "atrium.arm", "switch.turn_off": "atrium.off", "script.turn_on": "atrium.on", "script.bins": "atrium.act"} {
+	for svc, want := range map[string]string{"lock.lock": "atrium.lock", "cover.close_cover": "atrium.close", "alarm_control_panel.alarm_arm_away": "atrium.arm", "switch.turn_off": "atrium.off", "script.turn_on": "atrium.on", "script.bins": "atrium.act", "lock.unlock": "atrium.unlock", "cover.open_cover": "atrium.unlock"} {
 		if got := category(alert{Action: &alertAction{Service: svc}}); got != want {
 			t.Errorf("%s → %s, want %s", svc, got, want)
 		}
 	}
 	if got := category(alert{Action: &alertAction{Service: "select.select_option", Entity: "select.front_door_lock_rule", Data: map[string]any{"option": "reset"}}}); got != "atrium.lock" {
 		t.Errorf("a lock rule reset → %s", got)
+	}
+	if got := category(alert{Action: &alertAction{Service: "button.press", Entity: "button.front_door_unlock"}}); got != "atrium.unlock" {
+		t.Errorf("an unlock button → %s", got)
 	}
 	if category(alert{}) != "atrium.alert" || interruption("critical") != "time-sensitive" || interruption("info") != "active" {
 		t.Error("the plain alert's category or the levels")

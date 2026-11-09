@@ -3,6 +3,12 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.16
+
+- An alert whose action opens a way in (an unlock, a garage or a valve opening) gets its own button, which the
+  app marks destructive and keeps behind Face ID; every alert button already asked for the phone to be unlocked.
+  A cleared alert logs as "cleared alert <id>".
+
 ## 0.9.15
 
 - Alerts on the phones, with the app open or not. A Home Assistant automation fires an `atrium_alert` event

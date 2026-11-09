@@ -299,7 +299,11 @@ func (g *Gateway) alertEvents(ctx context.Context) error {
 			continue
 		}
 		sent, errs := g.alerts.raise(al)
-		log.Printf("alert %q (%s, %s): %d sent%s", al.Title, al.ID, al.Level, sent, joinProblems(errs))
+		if al.Clear {
+			log.Printf("cleared alert %s: %d sent%s", firstNonEmpty(al.ID, al.Title), sent, joinProblems(errs))
+		} else {
+			log.Printf("alert %q (%s, %s): %d sent%s", al.Title, al.ID, al.Level, sent, joinProblems(errs))
+		}
 	}
 }
 
@@ -426,7 +430,12 @@ func category(al alert) string {
 			return "atrium.lock"
 		}
 	}
+	entity := strings.ToLower(al.Action.Entity)
 	switch {
+	// Opening a way into the house from a notification: its own category, which the app marks destructive and
+	// behind Face ID, so a phone in the wrong hands cannot open the door from the Lock Screen.
+	case strings.HasSuffix(svc, ".unlock"), svc == "button.press" && strings.Contains(entity, "unlock"), strings.HasSuffix(svc, ".open_cover"), strings.HasSuffix(svc, ".open_valve"):
+		return "atrium.unlock"
 	case strings.HasSuffix(svc, ".lock"):
 		return "atrium.lock"
 	case strings.HasSuffix(svc, ".close_cover"), strings.HasSuffix(svc, ".close_valve"):
