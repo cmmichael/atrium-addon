@@ -80,6 +80,7 @@ home:                             # the Home screen's readouts
 security:                         # the Security screen; absent = no Security tab
   cameras: [camera.front_door, camera.driveway]
   doorbells: [camera.front_door]  # cameras that are doorbells (shown first, with the bell)
+  rings: { camera.front_door: event.front_door_doorbell }   # the ring behind a doorbell camera; default: the camera's device's doorbell event or sensor
   camera_for:                     # which camera to show when an entry opens
     binary_sensor.front_door: camera.front_door
   locks: [lock.front_door, lock.back_door]

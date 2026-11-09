@@ -304,16 +304,27 @@ func (x *index) autoSecurity() SecurityMapping {
 			continue
 		}
 		bell := strings.Contains(c.id, "doorbell") || strings.Contains(strings.ToLower(c.name), "doorbell")
-		if !bell && c.device != "" {
+		// The ring itself: the device's doorbell event (its state is the last ring's time) or binary sensor, so
+		// the apps can tell a ring from the camera's own state. An event entity is preferred over a binary sensor.
+		ring := ""
+		if c.device != "" {
 			for _, e := range x.ents {
 				if e.device == c.device && (e.domain == "binary_sensor" || e.domain == "event") && (e.class == "doorbell" || strings.Contains(e.id, "doorbell")) {
 					bell = true
-					break
+					if ring == "" || e.domain == "event" {
+						ring = e.id
+					}
 				}
 			}
 		}
 		if bell {
 			s.Doorbells = append(s.Doorbells, c.id)
+			if ring != "" {
+				if s.Rings == nil {
+					s.Rings = map[string]string{}
+				}
+				s.Rings[c.id] = ring
+			}
 		}
 	}
 	for _, l := range x.live("lock") {
@@ -491,4 +502,22 @@ func cameraName(n string) string {
 		}
 	}
 	return strings.TrimSpace(n)
+}
+
+// ringFor is the ring entity on a doorbell camera's device: its doorbell event (preferred: its state is the last
+// ring's time) or binary sensor; "" when the device has none.
+func (x *index) ringFor(camera string) string {
+	c := x.byID[camera]
+	if c.device == "" {
+		return ""
+	}
+	ring := ""
+	for _, e := range x.ents {
+		if e.device == c.device && (e.domain == "binary_sensor" || e.domain == "event") && (e.class == "doorbell" || strings.Contains(e.id, "doorbell")) {
+			if ring == "" || e.domain == "event" {
+				ring = e.id
+			}
+		}
+	}
+	return ring
 }

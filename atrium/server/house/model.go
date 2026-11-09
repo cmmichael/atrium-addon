@@ -47,11 +47,14 @@ type Summary struct {
 
 // Security is what the Security screen shows.
 type Security struct {
-	Cameras   []string          `json:"cameras"`
-	Locks     []string          `json:"locks"`
-	Entries   []string          `json:"entries"`
-	Hazards   []string          `json:"hazards"`
-	Doorbells []string          `json:"doorbells"`
+	Cameras   []string `json:"cameras"`
+	Locks     []string `json:"locks"`
+	Entries   []string `json:"entries"`
+	Hazards   []string `json:"hazards"`
+	Doorbells []string `json:"doorbells"`
+	// The ring entity behind each doorbell camera (an event whose state is the last ring's time, or a binary
+	// sensor), so the apps can tell a ring from the camera's own state.
+	Rings     map[string]string `json:"rings,omitempty"`
 	CameraFor map[string]string `json:"cameraFor"`
 	// camera id → "hls" (streams through the API, and has stills) or "webrtc" (WebRTC only, no still: Nest).
 	// A camera not listed streams the old way: stills only.

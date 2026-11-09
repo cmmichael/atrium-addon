@@ -438,6 +438,22 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 		fromFile = m.Security != nil
 		h.Security.Cameras = visible("security", s.Cameras)
 		h.Security.Doorbells = visible("security", s.Doorbells)
+		for _, cam := range h.Security.Doorbells { // the ring behind each doorbell camera: the file's, else the device's
+			ring := s.Rings[cam]
+			if ring != "" && x.d.States[ring] == nil {
+				problem("security: rings: Home Assistant has no %s", ring)
+				ring = ""
+			}
+			if ring == "" {
+				ring = x.ringFor(cam)
+			}
+			if ring != "" {
+				if h.Security.Rings == nil {
+					h.Security.Rings = map[string]string{}
+				}
+				h.Security.Rings[cam] = ring
+			}
+		}
 		h.Security.Locks = visible("security", s.Locks)
 		h.Security.Entries = visible("security", s.Entries)
 		h.Security.Hazards = visible("security", s.Hazards)

@@ -200,6 +200,7 @@ func TestTheRoomsAreDrawnFromHomeAssistantWithNoMappingAtAll(t *testing.T) {
 	eq(t, "entries", h.Security.Entries, []string{"binary_sensor.front_door"})
 	eq(t, "camera for the door", h.Security.CameraFor, map[string]string{"binary_sensor.front_door": "camera.front"})
 	eq(t, "doorbells", h.Security.Doorbells, []string{"camera.front"})
+	eq(t, "the ring behind the doorbell", h.Security.Rings, map[string]string{"camera.front": "binary_sensor.front_doorbell"})
 	eq(t, "speakers", h.Speakers, []string{"media_player.kitchen"}) // not the doorbell's own speaker, not the kiosk, not MA's copy
 	if h.MusicAssistant == nil || h.MusicAssistant.Entry != "ma-entry" || h.MusicAssistant.Players["media_player.kitchen"] != "media_player.kitchen_ma" {
 		t.Errorf("music assistant: %+v", h.MusicAssistant)

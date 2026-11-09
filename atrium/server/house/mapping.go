@@ -363,6 +363,7 @@ func (h HomeMapping) set() bool {
 type SecurityMapping struct {
 	Cameras   []string          `yaml:"cameras,omitempty"`
 	Doorbells []string          `yaml:"doorbells,omitempty"`
+	Rings     map[string]string `yaml:"rings,omitempty"` // doorbell camera → the ring entity (an event or binary sensor); default: the camera's device's
 	CameraFor map[string]string `yaml:"camera_for,omitempty"`
 	Locks     []string          `yaml:"locks,omitempty"`
 	Entries   []string          `yaml:"entries,omitempty"`

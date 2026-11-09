@@ -3,6 +3,12 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.20
+
+- `security.rings`: the ring entity behind each doorbell camera (the device's doorbell event, whose state is the
+  last ring's time, or its binary sensor), so the apps can tell a ring from the camera's own state. A ring now
+  brings the door's camera up in the app, with the doors' unlock tiles under it.
+
 ## 0.9.19
 
 - `routines` (version 3): `leaving` and `arriving`, each with `actions` (the Lock up and I'm home buttons) and
