@@ -216,6 +216,19 @@ type PanelMapping struct {
 	Actions []ButtonMapping `yaml:"actions,omitempty"`
 }
 
+// RoutinesMapping: leaving and arriving. The apps build the leaving check from what they already show (open
+// entries, unlocked doors, lights on, the valve, the cars) and add `check`; `actions` are the "lock up" and
+// "I'm home" buttons.
+type RoutinesMapping struct {
+	Leaving  *RoutineMapping `yaml:"leaving,omitempty"`
+	Arriving *RoutineMapping `yaml:"arriving,omitempty"`
+}
+
+type RoutineMapping struct {
+	Actions []ButtonMapping `yaml:"actions,omitempty"`
+	Check   []string        `yaml:"check,omitempty"` // entities to flag while on, open or unlocked, beyond the usual
+}
+
 type RowMapping struct {
 	Entity string `yaml:"entity"`
 	Name   string `yaml:"name,omitempty"`
@@ -387,6 +400,16 @@ type Schedule struct {
 	Name    string            `json:"name"`
 	Enabled string            `json:"enabled,omitempty"`
 	Times   map[string]string `json:"times"`
+}
+
+type Routines struct {
+	Leaving  *Routine `json:"leaving,omitempty"`
+	Arriving *Routine `json:"arriving,omitempty"`
+}
+
+type Routine struct {
+	Actions []RemoteButton `json:"actions"`
+	Check   []string       `json:"check"`
 }
 
 type Panel struct {
@@ -710,6 +733,25 @@ func renderV3(m Mapping, h *House, d Dump, exists func(where, id string) string,
 			pn.Rows = append(pn.Rows, Row{Entity: e, Name: firstOf(r.Name, display(e)), Toggle: dom == "switch" || dom == "light" || dom == "input_boolean" || dom == "lock" || dom == "automation" || dom == "fan"})
 		}
 		h.Panels = append(h.Panels, pn)
+	}
+
+	if rm := m.Routines; rm != nil {
+		routine := func(where string, r *RoutineMapping) *Routine {
+			if r == nil {
+				return nil
+			}
+			out := &Routine{Actions: buttons(where, r.Actions), Check: []string{}}
+			if out.Actions == nil {
+				out.Actions = []RemoteButton{}
+			}
+			for _, id := range r.Check {
+				if e := exists(where, id); e != "" {
+					out.Check = append(out.Check, e)
+				}
+			}
+			return out
+		}
+		h.Routines = &Routines{Leaving: routine("routines.leaving", rm.Leaving), Arriving: routine("routines.arriving", rm.Arriving)}
 	}
 }
 

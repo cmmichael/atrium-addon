@@ -83,6 +83,9 @@ day:
   schedules: [{ name: Shades, enabled: input_boolean.shades_schedule, times: { Open: input_datetime.shades_open, Close: input_datetime.nothing } }]
 panels:
   - { name: Coffee, icon: cup.and.saucer, room: kitchen, rows: [{ entity: sensor.beans_left, name: Beans }, { entity: automation.stuffy_fan }], actions: [{ name: Brew, action: script.matrix_ps5 }] }
+routines:
+  leaving: { actions: [{ name: Lock up, icon: lock, action: script.matrix_ps5 }], check: [binary_sensor.leak_laundry, sensor.gone] }
+  arriving: { actions: [] }
 `)))
 	if err != nil {
 		t.Fatal(err)
@@ -135,6 +138,8 @@ panels:
 	eq(t, "reminders", h.Day.Reminders, []Reminder{{Title: "Bins out", Entity: "input_boolean.bins_out", Weekday: 3, From: "18:00", Until: "08:00", Severity: "attention",
 		Action: &RemoteButton{Name: "Check", Action: Action{Domain: "script", Service: "turn_on", Entity: "script.matrix_ps5"}}}})
 	eq(t, "schedules", h.Day.Schedules, []Schedule{{Name: "Shades", Enabled: "input_boolean.shades_schedule", Times: map[string]string{"Open": "input_datetime.shades_open"}}})
+	eq(t, "routines", *h.Routines, Routines{Leaving: &Routine{Actions: []RemoteButton{{Name: "Lock up", Icon: "lock", Action: Action{Domain: "script", Service: "turn_on", Entity: "script.matrix_ps5"}}}, Check: []string{"binary_sensor.leak_laundry"}},
+		Arriving: &Routine{Actions: []RemoteButton{}, Check: []string{}}})
 	eq(t, "panels", h.Panels, []Panel{{ID: "coffee", Name: "Coffee", Icon: "cup.and.saucer", Room: "kitchen",
 		Rows:    []Row{{Entity: "sensor.beans_left", Name: "Beans"}, {Entity: "automation.stuffy_fan", Name: "Stuffy fan", Toggle: true}},
 		Actions: []RemoteButton{{Name: "Brew", Action: Action{Domain: "script", Service: "turn_on", Entity: "script.matrix_ps5"}}}}})
@@ -149,6 +154,7 @@ panels:
 		"vehicle Car: Home Assistant has no sensor.nothing",
 		"drive Sunday: at \"9:00\" is not a time (HH:MM)",
 		"schedule Shades: Home Assistant has no input_datetime.nothing",
+		"routines.leaving: Home Assistant has no sensor.gone",
 	}
 	eq(t, "problems", problems, want)
 }

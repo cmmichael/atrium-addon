@@ -3,6 +3,13 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.19
+
+- `routines` (version 3): `leaving` and `arriving`, each with `actions` (the Lock up and I'm home buttons) and
+  `check` (entities to flag beyond the usual). The apps build the leaving check from what they already show,
+  open entries and garages, unlocked locks and doors, lights on, the water valve closed, the cars' doors and
+  windows, and show an arriving card when someone gets home.
+
 ## 0.9.18
 
 - `GET /atrium/health`: how the add-on and its house are doing, in one answer: the version and any newer one,

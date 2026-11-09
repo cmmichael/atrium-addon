@@ -40,12 +40,13 @@ type Mapping struct {
 	Pool       *PoolMapping       `yaml:"pool,omitempty"`
 	Day        *DayMapping        `yaml:"day,omitempty"`
 	Panels     []PanelMapping     `yaml:"panels,omitempty"`
+	Routines   *RoutinesMapping   `yaml:"routines,omitempty"`
 }
 
 // v3 says whether the file uses any version 3 section.
 func (m Mapping) v3() bool {
 	return m.Climate != nil || m.Appliances != nil || m.Seasonal != nil || m.Vehicles != nil || m.Pool != nil || m.Day != nil || m.Panels != nil ||
-		m.Home.Attention != nil || (m.Energy != nil && m.Energy.Water != nil)
+		m.Routines != nil || m.Home.Attention != nil || (m.Energy != nil && m.Energy.Water != nil)
 }
 
 // WidgetMapping is one Home Screen widget in the file: a name and the items it shows, in order. The phone fits

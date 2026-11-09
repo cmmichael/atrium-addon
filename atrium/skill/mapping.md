@@ -332,6 +332,13 @@ panels:                             # the escape hatch: a card of rows and actio
       - { entity: sensor.grinds_today }
       - { entity: switch.brewer }   # a switch, light, input_boolean or lock row is a toggle
     actions: [{ name: Brew, icon: cup.and.saucer, action: script.brew }]
+
+routines:                           # leaving and arriving: the apps check what is open, on or unlocked, with one-tap fixes
+  leaving:
+    actions: [{ name: Lock up, icon: lock, action: script.lock_up }]   # the button at the end of the check
+    check: [binary_sensor.attic_window, switch.space_heater]            # beyond the usual: entries, locks, doors, lights, the valve, the cars
+  arriving:
+    actions: [{ name: I'm home, icon: house, action: scene.arrive }]   # on the card that appears when someone gets home
 ```
 
 ### What the apps get
@@ -347,7 +354,9 @@ apps then take Home Assistant's `hvac_action` at its word only while the setpoin
 idle otherwise (cooling likewise, below the target; in heat_cool mode against the low and high setpoints). The
 tile, the thermostat sheet and the Climate count all read it that way; the add-on itself changes nothing; `appliances[]` carry their room id; `air[]` their
 room id and the bands that apply; `day.drives[].days` arrive as a list of ISO weekdays; `seasonal[]` carry a boolean
-`active` for today. Nothing in these sections is guessed by the add-on: they come from the file alone, and `atrium_auto`
+`active` for today; `routines.leaving` and `routines.arriving` carry their resolved actions and `check` lists (the
+apps add the usual checks themselves: open entries and garages, unlocked locks and doors, lights on, the water valve
+closed, the cars' doors and windows). Nothing in these sections is guessed by the add-on: they come from the file alone, and `atrium_auto`
 prints them empty.
 
 ## Energy: solar, battery, grid and home

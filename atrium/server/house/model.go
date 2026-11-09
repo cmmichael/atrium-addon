@@ -177,6 +177,7 @@ type House struct {
 	Pool       *Pool       `json:"pool,omitempty"`
 	Day        *Day        `json:"day,omitempty"`
 	Panels     []Panel     `json:"panels,omitempty"`
+	Routines   *Routines   `json:"routines,omitempty"`
 }
 
 // Widget is one choice in the phone's widget gallery: a named list of items, every one already resolved. The
