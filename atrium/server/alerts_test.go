@@ -177,7 +177,7 @@ func TestWithoutAnAPNSKeyAlertsAreLoggedOnly(t *testing.T) {
 	if a.recent[0].ID != "bins-out" {
 		t.Errorf("the id from the title: %q", a.recent[0].ID)
 	}
-	for svc, want := range map[string]string{"lock.lock": "atrium.lock", "cover.close_cover": "atrium.close", "alarm_control_panel.alarm_arm_away": "atrium.arm", "switch.turn_off": "atrium.off", "script.turn_on": "atrium.on", "script.bins": "atrium.act", "lock.unlock": "atrium.unlock", "cover.open_cover": "atrium.unlock"} {
+	for svc, want := range map[string]string{"lock.lock": "atrium.lock", "cover.close_cover": "atrium.close", "alarm_control_panel.alarm_arm_away": "atrium.arm", "switch.turn_off": "atrium.off", "script.turn_on": "atrium.on", "script.bins": "atrium.act", "lock.unlock": "atrium.unlock", "cover.open_cover": "atrium.unlock", "input_boolean.turn_on": "atrium.done"} {
 		if got := category(alert{Action: &alertAction{Service: svc}}); got != want {
 			t.Errorf("%s → %s, want %s", svc, got, want)
 		}

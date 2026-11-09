@@ -3,6 +3,12 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.17
+
+- The button under an alert reads by what the action does, from a fixed set iOS needs registered in advance:
+  Lock, Unlock, Close, Arm, Turn on, Turn off, Done (an input_boolean or a to-do item), Do it. The add-on's log
+  names the button it chose for each alert, and the app's diagnostics name the category when one is opened.
+
 ## 0.9.16
 
 - An alert whose action opens a way in (an unlock, a garage or a valve opening) gets its own button, which the

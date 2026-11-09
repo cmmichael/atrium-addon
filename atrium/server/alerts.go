@@ -302,7 +302,11 @@ func (g *Gateway) alertEvents(ctx context.Context) error {
 		if al.Clear {
 			log.Printf("cleared alert %s: %d sent%s", firstNonEmpty(al.ID, al.Title), sent, joinProblems(errs))
 		} else {
-			log.Printf("alert %q (%s, %s): %d sent%s", al.Title, al.ID, al.Level, sent, joinProblems(errs))
+			button := ""
+			if al.Action != nil {
+				button = fmt.Sprintf(" · button %s (%s)", category(al), al.Action.Service)
+			}
+			log.Printf("alert %q (%s, %s): %d sent%s%s", al.Title, al.ID, al.Level, sent, button, joinProblems(errs))
 		}
 	}
 }
@@ -432,6 +436,8 @@ func category(al alert) string {
 	}
 	entity := strings.ToLower(al.Action.Entity)
 	switch {
+	case svc == "input_boolean.turn_on", svc == "input_boolean.turn_off", svc == "todo.update_item":
+		return "atrium.done" // a chore or a flag: "Done"
 	// Opening a way into the house from a notification: its own category, which the app marks destructive and
 	// behind Face ID, so a phone in the wrong hands cannot open the door from the Lock Screen.
 	case strings.HasSuffix(svc, ".unlock"), svc == "button.press" && strings.Contains(entity, "unlock"), strings.HasSuffix(svc, ".open_cover"), strings.HasSuffix(svc, ".open_valve"):

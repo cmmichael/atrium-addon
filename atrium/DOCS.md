@@ -151,7 +151,10 @@ actions:
 A second automation, when the door locks, fires `atrium_alert` with the same `id` and `clear: true`, and the
 notification and the Live Activity go. `to: [someone@example.com]` sends to those logins' phones only.
 `service` with `entity` and optional `data` is any Home Assistant action; the phone runs it through Home
-Assistant with its own sign-in when the button is pressed, without opening the app.
+Assistant with its own sign-in when the button is pressed, without opening the app. iOS shows the button under a
+long press (or a pull-down) on the notification, and its label comes from a fixed set chosen by what the action
+does, not from `title`: Lock, Unlock (red, and the phone must be unlocked first), Close, Arm, Turn on, Turn off,
+Done (an `input_boolean` or a to-do item) or Do it.
 
 Apple carries the notifications, so the add-on needs an APNs key from the Apple developer account that publishes
 the app: developer.apple.com → Certificates, Identifiers & Profiles → Keys → +, tick *Apple Push Notifications
