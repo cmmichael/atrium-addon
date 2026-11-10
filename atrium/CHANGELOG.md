@@ -3,6 +3,12 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.32
+
+- A sensor the layout names twice (under `water: alerts:` and under `attention: include:`, say) shows once on
+  Home, as its gravest reading. Before, putting one row away brought the same sensor back under the other
+  heading.
+
 ## 0.9.31
 
 - An alert on Home that is put away stays away. Both apps forgot it the next time they started, so an old
