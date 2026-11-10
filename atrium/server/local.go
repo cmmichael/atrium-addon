@@ -26,7 +26,7 @@ func NewLocal(g *Gateway) Local {
 
 // localPath is all the port answers: what the app needs from the add-on when Home Assistant is reached directly.
 func localPath(p string) bool {
-	return p == "/atrium/hello" || p == "/atrium/house" || p == "/atrium/clips"
+	return p == "/atrium/hello" || p == "/atrium/house" || p == "/atrium/clips" || p == "/atrium/thumb"
 }
 
 func (l Local) ServeHTTP(w http.ResponseWriter, r *http.Request) {

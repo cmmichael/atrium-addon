@@ -3,6 +3,32 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.29
+
+- A Nest camera's live view starts. Google refuses a WebRTC offer whose parts are not audio, video and data in
+  that order, and both apps asked for video first. The iPhone's live view also says when a camera did not answer,
+  offers to try again, and has a sound button.
+- A camera that only streams (Nest) has no still picture: its tile on the iPhone now shows the last frame its
+  live view saw, with how old it is.
+- Clips open at once. The add-on keeps the last listing of every camera's clips and answers it immediately,
+  refreshing behind; `/atrium/clips?all=1` gives all cameras in one answer. It keeps the clips' thumbnails in
+  memory too and serves them from `/atrium/thumb` with a day of caching. The iPhone keeps both on the device, so
+  "What happened" and a camera's clips draw before the house has answered.
+- A clip carries its moment (`at`), not only the house's clock from its title, so a phone in another time zone
+  puts clips in the right place among the day's other events.
+- Camera tiles ask Home Assistant for a small still instead of the recorder's full frame: a megabyte per tile
+  every ten seconds became a few tens of kilobytes.
+- Music on the iPhone plays through Home Assistant's own media browser as well: a speaker's favourites (Sonos)
+  and the media sources that hold music (Radio Browser, your own files) are listed and play on the speaker
+  itself, with or without Music Assistant. When Music Assistant cannot play something, the app says so in its
+  words instead of "error 0"; "There is nothing to play here" means its music service needs signing in again.
+  A cast speaker that is off shows and sets its volume through its Music Assistant twin. An AirPlay button sends
+  the phone's own sound to a speaker.
+- The Home screen on the iPhone: sections that have nothing to show no longer leave a gap, the update card
+  holds its button, and the small text is a size larger.
+- A camera that is switched off (a tablet's) is no longer asked how it streams at every connect, which wrote an
+  error in Home Assistant's log each time.
+
 ## 0.9.28
 
 - The add-on's line to Home Assistant for alerts now pings every 30 seconds and gives up a connection that has

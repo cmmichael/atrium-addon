@@ -1,8 +1,9 @@
 package main
 
 // Recent clips from cameras whose integration publishes them through Home Assistant's media source (UniFi
-// Protect). The apps ask /atrium/clips?camera=<entity>; the add-on walks the media tree and answers a plain list.
-// Playing one: /atrium/clip?id=<media id> resolves it to a signed /api/… MP4 the apps open through the add-on.
+// Protect). The apps ask /atrium/clips?all=1 (every camera's) or ?camera=<entity>; the add-on walks the media tree,
+// keeps the answer (clipcache.go) and gives a plain list. Playing one: /atrium/clips?id=<media id> resolves it to
+// a signed /api/… MP4 the apps open through the add-on.
 
 import (
 	"context"
@@ -19,7 +20,8 @@ import (
 type Clip struct {
 	ID      string `json:"id"`              // media-source://… to resolve on tap
 	Title   string `json:"title"`           // what happened: "Person", "Ring", "Motion"
-	When    string `json:"when"`            // as Home Assistant wrote it, local time: "11/07/26 09:35:58"
+	When    string `json:"when"`            // as Home Assistant wrote it, the house's time: "11/07/26 09:35:58"
+	At      string `json:"at,omitempty"`    // the same moment for a viewer in any zone: "2026-11-07T17:35:58Z"
 	Seconds int    `json:"seconds"`         // how long
 	Thumb   string `json:"thumb,omitempty"` // /api/… picture, through the add-on
 	Raw     string `json:"raw"`             // the node's own title
@@ -28,10 +30,16 @@ type Clip struct {
 // "11/07/26 09:35:58 9s Object Detection - Person"
 var clipTitle = regexp.MustCompile(`^(\d\d/\d\d/\d\d \d\d:\d\d:\d\d) (\d+)s (.+?)(?: - (.+))?$`)
 
-func parseClip(id, title, thumb string) Clip {
+// parseClip reads a UniFi Protect title; its time is the house's (loc; nil leaves At out).
+func parseClip(id, title, thumb string, loc *time.Location) Clip {
 	c := Clip{ID: id, Raw: title, Title: title, Thumb: thumb}
 	if m := clipTitle.FindStringSubmatch(title); m != nil {
 		c.When = m[1]
+		if loc != nil {
+			if t, err := time.ParseInLocation("01/02/06 15:04:05", c.When, loc); err == nil {
+				c.At = t.UTC().Format(time.RFC3339)
+			}
+		}
 		fmt.Sscan(m[2], &c.Seconds)
 		c.Title = firstNonEmpty(m[4], strings.TrimSuffix(m[3], " Event"))
 	}
@@ -106,9 +114,13 @@ func asNode(v any) mediaNode {
 	return n
 }
 
-// clips lists a camera's events of the last day, newest first. Nil, nil: the camera publishes none.
-func (g *Gateway) clips(ctx context.Context, camera string, limit int) ([]Clip, error) {
-	var out []Clip
+// protectCamera is the camera entity a UniFi Protect node stands for: its thumbnail is that camera's own picture.
+var protectCamera = regexp.MustCompile(`/camera_proxy/(camera\.[a-z0-9_]+)`)
+
+// protectClips lists every UniFi Protect camera's events of the last day, newest first, by camera entity, over
+// one connection. Nil, nil: no UniFi Protect here.
+func (g *Gateway) protectClips(ctx context.Context, limit int) (map[string][]Clip, error) {
+	var out map[string][]Clip
 	err := g.haWS(ctx, func(call func(map[string]any) (any, error)) error {
 		browse := func(id string) (mediaNode, error) {
 			r, err := call(map[string]any{"type": "media_source/browse_media", "media_content_id": id})
@@ -118,45 +130,45 @@ func (g *Gateway) clips(ctx context.Context, camera string, limit int) ([]Clip, 
 		if err != nil {
 			return nil // no UniFi Protect: no clips
 		}
-		// The camera's node: its thumbnail is the camera's own picture (camera_proxy/<entity>). One NVR or several.
-		var cam string
-		var find func(n mediaNode, depth int) error
-		find = func(n mediaNode, depth int) error {
+		out = map[string][]Clip{}
+		// The titles carry the house's own time: Home Assistant's zone turns them into moments.
+		loc := time.Local
+		if cfg, err := call(map[string]any{"type": "get_config"}); err == nil {
+			if m, _ := cfg.(map[string]any); m != nil {
+				if zone, _ := m["time_zone"].(string); zone != "" {
+					if l, err := time.LoadLocation(zone); err == nil {
+						loc = l
+					}
+				}
+			}
+		}
+		// The cameras' nodes, under the root (one NVR) or one level down (several).
+		nodes := map[string]string{} // camera entity → node id
+		var find func(n mediaNode, depth int)
+		find = func(n mediaNode, depth int) {
 			for _, c := range n.Children {
-				if strings.Contains(c.Thumb, "/"+camera+"?") || strings.HasSuffix(c.Thumb, "/"+camera) {
-					cam = c.ID
-					return nil
-				}
-			}
-			if depth > 0 {
-				for _, c := range n.Children {
-					if !strings.Contains(c.ID, ":browse:") || strings.HasSuffix(c.ID, ":browse:all") {
-						continue
-					}
-					sub, err := browse(c.ID)
-					if err == nil && find(sub, depth-1) == nil && cam != "" {
-						return nil
+				if m := protectCamera.FindStringSubmatch(c.Thumb); m != nil {
+					nodes[m[1]] = c.ID
+				} else if depth > 0 && strings.Contains(c.ID, ":browse:") && !strings.HasSuffix(c.ID, ":browse:all") {
+					if sub, err := browse(c.ID); err == nil {
+						find(sub, depth-1)
 					}
 				}
 			}
-			return nil
 		}
 		find(root, 1)
-		if cam == "" {
-			return nil
-		}
-		day, err := browse(cam + ":all:recent:1")
-		if err != nil {
-			return err
-		}
-		for _, c := range day.Children {
-			if !c.CanPlay {
-				continue
+		for camera, node := range nodes {
+			day, err := browse(node + ":all:recent:1")
+			if err != nil {
+				return err
 			}
-			out = append(out, parseClip(c.ID, c.Title, c.Thumb))
-			if len(out) == limit {
-				break
+			list := []Clip{}
+			for _, c := range day.Children {
+				if c.CanPlay && len(list) < limit {
+					list = append(list, parseClip(c.ID, c.Title, c.Thumb, loc))
+				}
 			}
+			out[camera] = list
 		}
 		return nil
 	})
@@ -194,16 +206,24 @@ func (g *Gateway) serveClips(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"url": url})
 		return
 	}
-	camera := r.URL.Query().Get("camera")
-	if !strings.HasPrefix(camera, "camera.") {
-		http.Error(w, `{"error":"camera=<camera entity id>"}`, http.StatusBadRequest)
-		return
-	}
-	list, err := g.clips(r.Context(), camera, 30)
+	all, at, err := g.allClips(r.Context())
 	if err != nil {
 		http.Error(w, `{"error":"Home Assistant did not answer"}`, http.StatusBadGateway)
 		return
 	}
+	if r.URL.Query().Get("all") != "" { // every camera's at once, for the day's story
+		if all == nil {
+			all = map[string][]Clip{}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"cameras": all, "at": at.UTC().Format(time.RFC3339)})
+		return
+	}
+	camera := r.URL.Query().Get("camera")
+	if !strings.HasPrefix(camera, "camera.") {
+		http.Error(w, `{"error":"camera=<camera entity id>, or all=1"}`, http.StatusBadRequest)
+		return
+	}
+	list := all[camera]
 	if list == nil {
 		list = []Clip{}
 	}

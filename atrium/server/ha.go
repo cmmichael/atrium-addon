@@ -139,11 +139,15 @@ func (g *Gateway) dump(ctx context.Context) (house.Dump, error) {
 	// WebRTC-only camera (Nest) has no still image, only a placeholder.
 	d.CameraStreams = map[string][]string{}
 	var cams []string
+	g.mu.Lock()
 	for id := range d.States {
-		if strings.HasPrefix(id, "camera.") {
+		// A camera that is switched off refuses the question ("Camera is off"), and every asking is an error line
+		// in Home Assistant's log: it is left alone for an hour.
+		if strings.HasPrefix(id, "camera.") && time.Since(g.cameraRefused[id]) > cameraAskAgain {
 			cams = append(cams, id)
 		}
 	}
+	g.mu.Unlock()
 	sort.Strings(cams)
 	for i, id := range cams {
 		if err := write(map[string]any{"id": 100 + i, "type": "camera/capabilities", "entity_id": id}); err != nil {
@@ -160,14 +164,30 @@ func (g *Gateway) dump(ctx context.Context) (house.Dump, error) {
 			continue
 		}
 		got++
+		cam := cams[int(id)-100]
+		if ok, _ := m["success"].(bool); !ok {
+			if e, _ := m["error"].(map[string]any); e == nil || !strings.Contains(fmt.Sprint(e["message"]), "is off") {
+				continue // some other refusal (Home Assistant still starting, say): ask again next time
+			}
+			g.mu.Lock()
+			if g.cameraRefused == nil {
+				g.cameraRefused = map[string]time.Time{}
+			}
+			g.cameraRefused[cam] = time.Now()
+			g.mu.Unlock()
+			continue
+		}
 		if r, _ := m["result"].(map[string]any); r != nil {
 			for _, t := range strs(r["frontend_stream_types"]) {
-				d.CameraStreams[cams[int(id)-100]] = append(d.CameraStreams[cams[int(id)-100]], t)
+				d.CameraStreams[cam] = append(d.CameraStreams[cam], t)
 			}
 		}
 	}
 	return d, nil
 }
+
+// cameraAskAgain is how long a camera that refused camera/capabilities is left alone.
+const cameraAskAgain = time.Hour
 
 // runningFor is how long Home Assistant has been running, read off the dump: at start Home Assistant writes a
 // restored placeholder for every registered entity its integrations have not provided yet, so the oldest of those

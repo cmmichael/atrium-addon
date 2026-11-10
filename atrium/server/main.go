@@ -42,7 +42,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.28"
+const version = "0.9.29"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -157,7 +157,9 @@ type Gateway struct {
 	digestReport    *digestReport // the week's report (digest.go), and when and for which layout it was worked out
 	digestAt        time.Time
 	digestGen       int
-	admins          map[string]bool // Home Assistant user id → is an administrator
+	clips           clipStore            // the cameras' clips and their pictures, kept (clipcache.go)
+	cameraRefused   map[string]time.Time // cameras that would not say how they stream, and when they were asked
+	admins          map[string]bool      // Home Assistant user id → is an administrator
 	adminsAt        time.Time
 	setup           Setup
 }
@@ -550,6 +552,8 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 	switch {
 	case r.URL.Path == "/atrium/clips":
 		g.serveClips(w, r)
+	case r.URL.Path == "/atrium/thumb":
+		g.serveThumb(w, r)
 	case r.URL.Path == "/atrium/setup":
 		g.mu.Lock()
 		setup := g.setup

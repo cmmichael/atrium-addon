@@ -117,7 +117,23 @@ whatever a glance should show; the atrium-mapping skill writes it. The widget fi
 
 Cameras play live in the app and on the web: UniFi Protect through Atrium (so anywhere Atrium works), Nest over
 WebRTC from Google. UniFi Protect's events of the last day are under each camera as clips. Nest cameras have no
-still picture, so their tiles show "Live view" until one is opened.
+still picture, so their tiles say "Tap for live" until one is opened; after that the iPhone shows the last frame
+it saw, with its age. Google limits how often a Nest stream may start, so a live view opens on a tap, one camera
+at a time.
+
+Atrium keeps the last listing of the clips and their thumbnails in memory (about 32 MB at most) and answers
+from there, refreshing behind, so the app does not wait for the recorder; the iPhone keeps them on the device
+as well.
+
+## Music
+
+The Music screen plays three ways. A speaker's own favourites (Sonos favourites, say) and Home Assistant's media
+sources that hold music (Radio Browser, your own files) need nothing but Home Assistant: they are what Home
+Assistant's own media browser shows for that speaker. With Music Assistant installed, the screen also searches
+its library and services and plays through each speaker's Music Assistant player. If a search result answers
+"none of its music services can play it", Music Assistant's music service (Spotify, YouTube Music, …) has lost
+its sign-in: renew it in Music Assistant under Settings, Providers. On the iPhone an AirPlay button sends the
+phone's own sound to a speaker that takes AirPlay.
 
 ## Alerts
 
