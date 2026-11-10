@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -714,12 +715,12 @@ func TestTheSupervisorConfirmsAWritersAddress(t *testing.T) {
 	defer ha.Close()
 	var status int
 	var ip, state string
-	var hang bool
+	var hang atomic.Bool
 	sup := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/addons/d7e97e69_claudecode/info" || r.Header.Get("Authorization") != "Bearer addon-token" {
 			t.Errorf("unexpected Supervisor request %s %s (%s)", r.Method, r.URL.Path, r.Header.Get("Authorization"))
 		}
-		if hang {
+		if hang.Load() {
 			select {
 			case <-r.Context().Done():
 			case <-time.After(2 * time.Second):
@@ -762,11 +763,11 @@ func TestTheSupervisorConfirmsAWritersAddress(t *testing.T) {
 	if w := put(); w.Code != 403 || !strings.Contains(w.Body.String(), `is "stopped", not started`) {
 		t.Errorf("stopped: %d %s", w.Code, w.Body.String())
 	}
-	hang = true
+	hang.Store(true)
 	if w := put(); w.Code != 403 || !strings.Contains(w.Body.String(), "did not answer") {
 		t.Errorf("timeout: %d %s", w.Code, w.Body.String())
 	}
-	hang = false
+	hang.Store(false)
 	status = 404
 	if w := put(); w.Code != 403 || !strings.Contains(w.Body.String(), "Supervisor status 404") {
 		t.Errorf("404 from the Supervisor: %d %s", w.Code, w.Body.String())

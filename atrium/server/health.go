@@ -45,6 +45,11 @@ type healthReport struct {
 	Alerts struct {
 		Pushes  bool `json:"pushes"` // an APNs key is in
 		Devices int  `json:"devices"`
+		// The socket that hears atrium_alert: subscribed now, since when, and how many times it had to connect
+		// again since the add-on started. Not listening means alerts are being missed.
+		Listening  bool       `json:"listening"`
+		Since      *time.Time `json:"since,omitempty"`
+		Reconnects int        `json:"reconnects"`
 	} `json:"alerts"`
 }
 
@@ -76,6 +81,12 @@ func (g *Gateway) serveHealth(w http.ResponseWriter, r *http.Request, id Identit
 		h.House.BuiltAt = &at
 	}
 	h.House.Stale = g.house.stale
+	h.Alerts.Listening = g.alertsListening
+	if g.alertsListening {
+		since := g.alertsSince
+		h.Alerts.Since = &since
+	}
+	h.Alerts.Reconnects = max(0, g.alertsConnects-1)
 	h.House.Unavailable = append([]string{}, g.unavailable...)
 	if g.updateLatest != "" && olderThan(version, g.updateLatest) {
 		h.Latest = g.updateLatest

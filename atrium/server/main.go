@@ -42,7 +42,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.27"
+const version = "0.9.28"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -148,12 +148,18 @@ type Gateway struct {
 	house        built
 	houseDefault built // the same without atrium.yaml, for ?layout=default
 	building     singleflight.Group
-	digestReport *digestReport // the week's report (digest.go), and when and for which layout it was worked out
-	digestAt     time.Time
-	digestGen    int
-	admins       map[string]bool // Home Assistant user id → is an administrator
-	adminsAt     time.Time
-	setup        Setup
+	// The alerts socket (alerts.go): whether it is subscribed now, since when, and how many times it has been.
+	alertsListening bool
+	alertsSince     time.Time
+	alertsConnects  int
+	alertPing       time.Duration // tests shorten these; zero means alertPing and alertSilence (alerts.go)
+	alertSilence    time.Duration
+	digestReport    *digestReport // the week's report (digest.go), and when and for which layout it was worked out
+	digestAt        time.Time
+	digestGen       int
+	admins          map[string]bool // Home Assistant user id → is an administrator
+	adminsAt        time.Time
+	setup           Setup
 }
 
 // Setup is where the add-on is in joining the tailnet, for the panel to walk the owner through it: it is

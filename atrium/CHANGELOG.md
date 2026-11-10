@@ -3,6 +3,15 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.28
+
+- The add-on's line to Home Assistant for alerts now pings every 30 seconds and gives up a connection that has
+  gone silent for 75 seconds, then connects again. Before, a connection that died without closing could leave
+  every later alert unheard with nothing in the log, and after a few reconnects every later one waited 30 seconds.
+- Health no longer says Home Assistant is unreachable on a quiet evening: the pings are heard. It also says
+  whether the alerts listener is up, since when, and how often it had to reconnect; both apps' Health screens
+  say so when it is down.
+
 ## 0.9.27
 
 - The week at home counts a doorbell press once, even where the doorbell reports it twice a second apart.

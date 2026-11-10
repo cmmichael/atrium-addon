@@ -241,55 +241,110 @@ func (g *Gateway) serveAlerts(w http.ResponseWriter, r *http.Request, id Identit
 	}
 }
 
+// The alerts socket asks Home Assistant for a pong every alertPing, and gives the connection up when nothing at
+// all has come back for alertSilence: a connection that died without a close (the Supervisor's proxy or the core
+// going away hard) would otherwise block a read for ever, and every alert after it would be lost unseen.
+const (
+	alertPing    = 30 * time.Second
+	alertSilence = 75 * time.Second
+)
+
+// alertTimes are the ping interval and the silence allowed, the Gateway's own when a test set them.
+func (g *Gateway) alertTimes() (ping, silence time.Duration) {
+	ping, silence = alertPing, alertSilence
+	if g.alertPing > 0 {
+		ping = g.alertPing
+	}
+	if g.alertSilence > 0 {
+		silence = g.alertSilence
+	}
+	return
+}
+
 // watchAlerts keeps one WebSocket to Home Assistant for `atrium_alert` events, for as long as the add-on runs.
+// After a connection that subscribed, the next attempt waits a second again; failures in a row wait longer.
 func (g *Gateway) watchAlerts() {
 	pause := time.Second
 	for {
-		err := g.alertEvents(context.Background())
+		subscribed, err := g.alertEvents(context.Background())
+		g.mu.Lock()
+		g.alertsListening = false
+		g.mu.Unlock()
+		if subscribed {
+			pause = time.Second
+		}
 		if err != nil {
 			log.Printf("alerts: %v; listening again in %s", err, pause)
 		}
 		time.Sleep(pause)
-		if pause < 30*time.Second {
+		if !subscribed && pause < 30*time.Second {
 			pause *= 2
 		}
 	}
 }
 
-func (g *Gateway) alertEvents(ctx context.Context) error {
+func (g *Gateway) alertEvents(ctx context.Context) (subscribed bool, err error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	c, _, err := websocket.Dial(ctx, g.Addon.WS, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer c.CloseNow()
 	c.SetReadLimit(1 << 20)
+	every, silence := g.alertTimes()
 	read := func() (map[string]any, error) {
-		_, data, err := c.Read(ctx)
+		rctx, done := context.WithTimeout(ctx, silence)
+		defer done()
+		_, data, err := c.Read(rctx)
 		if err != nil {
+			if rctx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
+				return nil, fmt.Errorf("Home Assistant went silent for %s, not even answering a ping", silence)
+			}
 			return nil, err
 		}
 		var m map[string]any
 		return m, json.Unmarshal(data, &m)
 	}
 	if _, err := read(); err != nil {
-		return err
+		return false, err
 	}
 	auth, _ := json.Marshal(map[string]any{"type": "auth", "access_token": g.Addon.Token})
 	if err := c.Write(ctx, websocket.MessageText, auth); err != nil {
-		return err
+		return false, err
 	}
 	if m, err := read(); err != nil || m["type"] != "auth_ok" {
-		return fmt.Errorf("Home Assistant refused the add-on's token")
+		return false, fmt.Errorf("Home Assistant refused the add-on's token")
 	}
 	sub, _ := json.Marshal(map[string]any{"id": 1, "type": "subscribe_events", "event_type": "atrium_alert"})
 	if err := c.Write(ctx, websocket.MessageText, sub); err != nil {
-		return err
+		return false, err
 	}
 	g.heard()
+	g.mu.Lock()
+	g.alertsListening, g.alertsSince = true, time.Now()
+	g.alertsConnects++
+	g.mu.Unlock()
+	// Home Assistant's own ping, so a quiet evening still hears from it; ids go on from the subscription's.
+	go func() {
+		tick := time.NewTicker(every)
+		defer tick.Stop()
+		for id := 2; ; id++ {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				ping, _ := json.Marshal(map[string]any{"id": id, "type": "ping"})
+				if c.Write(ctx, websocket.MessageText, ping) != nil {
+					return
+				}
+			}
+		}
+	}()
 	for {
 		m, err := read()
 		if err != nil {
-			return err
+			return true, err
 		}
 		g.heard()
 		if m["type"] != "event" {
