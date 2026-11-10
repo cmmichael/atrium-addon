@@ -112,6 +112,11 @@ page or the app for the picture) and add overrides only where they are wrong. Ch
   other three, so a house with a battery needs at least three of the four, and a house without one leaves the
   battery keys out (never name a phone's battery). `solar_today` and `used_today` are the day's totals. Units
   are read from each sensor (W or kW; kWh, Wh or MWh), so pick the right quantity, not the right unit.
+  `used_today` may list several meters when the main one misses part of the house (a pool on its own tap); never
+  a template that sums them, which double-counts at midnight. Each must be one Home Assistant keeps long-term
+  statistics for (a `state_class`, not left out of the recorder) and should restart at the house's own midnight:
+  a `utility_meter` helper with a daily cycle is the safe choice. The week at home and the charts read the
+  statistics, and the add-on's health lists a meter without them.
   `consumers` is the "Using now" list: keep the circuits worth watching (oven, EV, pool pump), drop the rest. If
   the house has water metering, fill in `water_flow` and `water_today`; otherwise delete those lines.
 - **People.** `home.people` should be the household, not every `person.*` (guests, test users).

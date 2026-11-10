@@ -141,6 +141,7 @@ type Energy struct {
 	Inverted     []string `json:"inverted,omitempty"`     // power sensors whose sign is the opposite of the convention
 	SolarToday   string   `json:"solarToday,omitempty"`
 	UsedToday    string   `json:"usedToday,omitempty"`
+	UsedAlso     []string `json:"usedAlso,omitempty"` // further meters whose kWh today add to usedToday's (a pool on its own tap)
 	Consumers    []string `json:"consumers"`
 	WaterFlow    string   `json:"waterFlow,omitempty"`
 	WaterToday   string   `json:"waterToday,omitempty"`
@@ -299,6 +300,8 @@ type Dump struct {
 	CameraStreams map[string][]string
 	// config_entries/get: each integration's entry and whether it is loaded. Missing: not asked (older dump).
 	ConfigEntries []map[string]any
+	// recorder/list_statistic_ids: the entities Home Assistant keeps long-term statistics for. Nil: not asked.
+	Statistics map[string]bool
 	// Home Assistant's state from get_config ("RUNNING" once started up) and how long it has been running.
 	// Integrations load in the first minutes, so what is restored then means nothing yet; see Settled.
 	Running    bool

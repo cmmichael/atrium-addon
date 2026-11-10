@@ -393,7 +393,7 @@ type EnergyMapping struct {
 	BatteryPower PowerRef `yaml:"battery_power,omitempty"`
 	BatteryLevel string   `yaml:"battery_level,omitempty"` // percent
 	SolarToday   string   `yaml:"solar_today,omitempty"`
-	UsedToday    string   `yaml:"used_today,omitempty"`
+	UsedToday    Entities `yaml:"used_today,omitempty"` // one meter, or several whose kWh add up (a pool on its own tap)
 	Consumers    []string `yaml:"consumers,omitempty"`
 	WaterFlow    string   `yaml:"water_flow,omitempty"`
 	WaterToday   string   `yaml:"water_today,omitempty"`
@@ -434,6 +434,37 @@ type TariffSeasonMapping struct {
 type TierMapping struct {
 	UpTo float64 `yaml:"up_to,omitempty"`
 	Rate float64 `yaml:"rate"`
+}
+
+// Entities is one entity id or a list of them in the file: `used_today: sensor.a` or `used_today: [sensor.a,
+// sensor.b]`. Written back as a single id when it holds one.
+type Entities []string
+
+func (l *Entities) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind == yaml.ScalarNode {
+		var id string
+		if err := n.Decode(&id); err != nil {
+			return err
+		}
+		*l = nil
+		if id != "" {
+			*l = Entities{id}
+		}
+		return nil
+	}
+	var list []string
+	if err := n.Decode(&list); err != nil {
+		return errors.New("one entity id, or a list of them")
+	}
+	*l = list
+	return nil
+}
+
+func (l Entities) MarshalYAML() (any, error) {
+	if len(l) == 1 {
+		return l[0], nil
+	}
+	return []string(l), nil
 }
 
 // PowerRef is a power sensor in the file: an entity id, or `{entity: sensor.x, invert: true}` for a sensor whose

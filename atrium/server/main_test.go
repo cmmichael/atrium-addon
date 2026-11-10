@@ -62,6 +62,7 @@ var tinyHouse = map[string]string{
 	"get_states":                  `[{"entity_id":"light.den_lamp","state":"on","attributes":{"friendly_name":"Den Lamp"}},{"entity_id":"light.den_settings","state":"off","attributes":{}}]`,
 	"get_config":                  `{"location_name":"Test Home"}`,
 	"config_entries/get":          `[]`,
+	"recorder/list_statistic_ids": `[{"statistic_id":"sensor.den_energy","unit_of_measurement":"kWh","has_sum":true}]`,
 	"config/auth/list":            `[{"id":"u1","name":"Someone","is_owner":false,"group_ids":["system-users"]},{"id":"u2","name":"The admin","is_owner":false,"group_ids":["system-admin"]},{"id":"u3","name":"The owner","is_owner":true,"group_ids":["system-admin"]}]`,
 }
 

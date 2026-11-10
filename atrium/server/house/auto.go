@@ -445,7 +445,9 @@ func (x *index) autoEnergy() EnergyMapping {
 		e.LoadPower = []PowerRef{{Entity: load}}
 	}
 	e.SolarToday = named(energies, []string{"solar", "production"})
-	e.UsedToday = named(energies, []string{"consumption", "house", "home", "main_panel"}, "solar", "production")
+	if used := named(energies, []string{"consumption", "house", "home", "main_panel"}, "solar", "production"); used != "" {
+		e.UsedToday = Entities{used}
+	}
 	// Consumers: the circuits drawing the most right now, a dozen of them; the totals above are not consumers.
 	taken := set(e.SolarPower.Entity)
 	for _, ref := range e.LoadPower {
@@ -496,7 +498,7 @@ func (x *index) autoEnergy() EnergyMapping {
 
 func (e EnergyMapping) any() bool {
 	return e.SolarPower.Entity != "" || len(e.LoadPower) > 0 || e.GridPower.Entity != "" || e.BatteryPower.Entity != "" || e.BatteryLevel != "" ||
-		e.SolarToday != "" || e.UsedToday != "" || len(e.Consumers) > 0 || e.WaterFlow != ""
+		e.SolarToday != "" || len(e.UsedToday) > 0 || len(e.Consumers) > 0 || e.WaterFlow != ""
 }
 
 func (x *index) autoMusic() MusicMapping {

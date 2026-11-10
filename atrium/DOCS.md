@@ -170,14 +170,16 @@ first time the app connects after allowing notifications; `GET /atrium/devices` 
 Every Monday the house has a week to look back on, and Atrium writes it up from Home Assistant's own recorder:
 what the house used and the solar made against the week before, what the electricity came to on the tariff,
 water, the nights a room's CO₂ ran past the layout's "poor" band, locks left unlocked and doors left open for an
-hour or more at night (from 6 in the evening to 6 in the morning, in the house's own time zone), and how often
-each doorbell rang. It reads only what the layout already names (`energy`, `water`, `climate.air`, `security`),
+hour or more at night (from midnight to 6 in the morning, in the house's own time zone), and how often each
+doorbell rang. A door or lock that read open all week, never once closed, gets a line of its own, since a stuck
+sensor is the likelier cause. It reads only what the layout already names (`energy`, `water`, `climate.air`, `security`),
 so nothing new needs mapping; a house without solar or locks simply gets no such line. Energy and water come from
 the recorder's daily statistics of the meters, never from adding up power, so an inverter that drops off for an
 hour leaves the totals right.
 
 The apps show it as **The week** (on Home in the web app, under More on the phone). `GET /atrium/digest` answers
-the same report as JSON, and the `atrium_digest` MCP tool gives it to an assistant. To have it arrive as a
+the same report as JSON (to the apps and to add-ons allowed to write the layout), and the `atrium_digest` MCP
+tool gives it to an assistant. To have it arrive as a
 notification, fire `atrium_alert` with `digest: true`, and the add-on fills in the title ("The week at home") and
 the body:
 

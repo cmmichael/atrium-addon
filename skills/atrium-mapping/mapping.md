@@ -96,7 +96,7 @@ energy:                           # the Energy screen; absent = no Energy tab
   battery_power: { entity: sensor.battery_power, invert: true }   # signed: positive = discharging; invert: true for a sensor with the opposite sign
   battery_level: sensor.battery_soc              # percent
   solar_today: sensor.pv_energy_today            # kWh, Wh or MWh, by the sensor's unit
-  used_today: sensor.house_energy_today          # kWh
+  used_today: sensor.house_energy_today          # kWh, Wh or MWh; or a list, [sensor.house_today, sensor.pool_today], when a meter (a pool on its own tap) is not counted by the main one: their days add up
   consumers: [sensor.oven_power, sensor.ev_charger_power]   # W, the "Using now" list
   water_flow: sensor.water_flow                  # any unit
   water_today: sensor.water_today

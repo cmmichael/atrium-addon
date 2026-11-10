@@ -526,7 +526,14 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 		h.Energy.BatteryPower = power(e.BatteryPower)
 		h.Energy.BatteryLevel = exists("energy", e.BatteryLevel)
 		h.Energy.SolarToday = exists("energy", e.SolarToday)
-		h.Energy.UsedToday = exists("energy", e.UsedToday)
+		for _, id := range e.UsedToday {
+			if id = exists("energy", id); id == "" {
+			} else if h.Energy.UsedToday == "" {
+				h.Energy.UsedToday = id
+			} else if id != h.Energy.UsedToday && !contains(h.Energy.UsedAlso, id) {
+				h.Energy.UsedAlso = append(h.Energy.UsedAlso, id)
+			}
+		}
 		h.Energy.Consumers = visible("energy", e.Consumers)
 		h.Energy.WaterFlow = exists("energy", e.WaterFlow)
 		h.Energy.WaterToday = exists("energy", e.WaterToday)
@@ -630,6 +637,24 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 		problems = append(problems, wp...)
 		if len(w.Items) > 0 {
 			h.Widgets = append(h.Widgets, w)
+		}
+	}
+	// The meters the week at home and the charts read from the recorder's long-term statistics: one Home Assistant
+	// keeps none for (no state_class, or left out of the recorder) gives them nothing, so the file is told.
+	if d.Statistics != nil && m.Energy != nil {
+		meters := append([]string{h.Energy.SolarToday, h.Energy.UsedToday, h.Energy.WaterToday}, h.Energy.UsedAlso...)
+		if w := h.Energy.Water; w != nil {
+			meters = append(meters, w.Today)
+		}
+		if t := h.Energy.Tariff; t != nil {
+			meters = append(meters, t.Net)
+		}
+		seen := map[string]bool{}
+		for _, id := range meters {
+			if id != "" && !seen[id] && !d.Statistics[id] {
+				seen[id] = true
+				problem("energy: Home Assistant keeps no long-term statistics for %s (it has no state_class, or the recorder leaves it out), so the week at home and the charts cannot use it", id)
+			}
 		}
 	}
 	return h, problems

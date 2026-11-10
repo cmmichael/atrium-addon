@@ -78,7 +78,7 @@ func (g *Gateway) dump(ctx context.Context) (house.Dump, error) {
 	if ok, err := read(); err != nil || ok["type"] != "auth_ok" {
 		return house.Dump{}, fmt.Errorf("Home Assistant refused the add-on's token: %v %v", ok["message"], err)
 	}
-	kinds := []string{"config/area_registry/list", "config/floor_registry/list", "config/entity_registry/list", "config/device_registry/list", "get_states", "get_config", "config_entries/get"}
+	kinds := []string{"config/area_registry/list", "config/floor_registry/list", "config/entity_registry/list", "config/device_registry/list", "get_states", "get_config", "config_entries/get", "recorder/list_statistic_ids"}
 	for i, kind := range kinds {
 		if err := write(map[string]any{"id": i + 1, "type": kind}); err != nil {
 			return house.Dump{}, err
@@ -95,7 +95,8 @@ func (g *Gateway) dump(ctx context.Context) (house.Dump, error) {
 			continue
 		}
 		if ok, _ := m["success"].(bool); !ok {
-			if kinds[int(id)-1] == "config_entries/get" { // only the stale list needs it; a Home Assistant without it still has a house
+			// Only the stale list and the meters' check need these; a Home Assistant without them still has a house.
+			if k := kinds[int(id)-1]; k == "config_entries/get" || k == "recorder/list_statistic_ids" {
 				results[int(id)] = nil
 				continue
 			}
@@ -107,6 +108,14 @@ func (g *Gateway) dump(ctx context.Context) (house.Dump, error) {
 	d.Areas, d.Floors, d.Entities, d.Devices = objects(results[1]), objects(results[2]), objects(results[3]), objects(results[4])
 	if results[7] != nil {
 		d.ConfigEntries = objects(results[7])
+	}
+	if results[8] != nil {
+		d.Statistics = map[string]bool{}
+		for _, s := range objects(results[8]) {
+			if id, _ := s["statistic_id"].(string); id != "" {
+				d.Statistics[id] = true
+			}
+		}
 	}
 	for _, s := range objects(results[5]) {
 		id, _ := s["entity_id"].(string)

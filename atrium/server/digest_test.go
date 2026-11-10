@@ -153,9 +153,40 @@ func TestRings(t *testing.T) {
 	if n := ringCount(event, b[0], b[7]); n != 2 {
 		t.Errorf("event entity: %d rings", n)
 	}
-	binary := []histRow{{S: "on"}, {S: "off"}, {S: "on"}, {S: "unavailable"}, {S: "on"}, {S: "off"}, {S: "on"}}
+	// One press reported twice a second apart is one ring; a second press a minute later is another.
+	twice := []histRow{{S: stamp(2, time.Hour)}, {S: stamp(2, time.Hour+time.Second)}, {S: stamp(2, time.Hour+time.Minute)}}
+	if n := ringCount(twice, b[0], b[7]); n != 2 {
+		t.Errorf("a press reported twice: %d rings", n)
+	}
+	at := func(s string, day int, d time.Duration) histRow {
+		return histRow{S: s, LU: float64(b[day].Add(d).UnixNano()) / 1e9}
+	}
+	binary := []histRow{at("on", 0, 0), at("off", 0, time.Minute), at("on", 1, time.Hour), at("unavailable", 1, 2*time.Hour),
+		at("on", 1, 3*time.Hour), at("off", 1, 4*time.Hour), at("on", 3, time.Hour), at("off", 3, time.Hour+time.Second), at("on", 3, time.Hour+3*time.Second)}
 	if n := ringCount(binary, b[0], b[7]); n != 2 {
 		t.Errorf("binary sensor: %d rings", n)
+	}
+}
+
+func TestOpenAllWeek(t *testing.T) {
+	loc := losAngeles(t)
+	b := midnights(time.Date(2026, 11, 9, 12, 0, 0, 0, loc), loc, 7)
+	at := func(s string, d time.Duration) histRow {
+		return histRow{S: s, LU: float64(b[0].Add(d).UnixNano()) / 1e9}
+	}
+	open := func(s string) bool { return s == "on" }
+	// Open since before the week, with unavailable blips: all week.
+	stuck := []histRow{at("on", -9*24*time.Hour), at("unavailable", 30*time.Hour), at("on", 30*time.Hour+time.Minute)}
+	if !openAllWeek(stuck, b[0], b[7], open) {
+		t.Error("open all week, read as not")
+	}
+	// Closed once, for a minute, on the fourth day: not all week.
+	if openAllWeek(append(stuck, at("off", 80*time.Hour), at("on", 80*time.Hour+time.Minute)), b[0], b[7], open) {
+		t.Error("closed once, read as open all week")
+	}
+	// Opened after the week began: the start is not known to be open.
+	if openAllWeek([]histRow{at("on", time.Hour)}, b[0], b[7], open) {
+		t.Error("opened during the week, read as open all week")
 	}
 }
 
@@ -286,5 +317,31 @@ func TestBuildDigest(t *testing.T) {
 		if !strings.Contains(all, s) {
 			t.Errorf("missing %q in:\n%s", s, all)
 		}
+	}
+	// A second meter (a pool on its own tap) adds its days to the house's; a day it missed adds nothing.
+	var pool []statRow
+	for i := 0; i < 14; i++ {
+		if i != 10 {
+			pool = append(pool, statRow{Start: ms(i), Change: f(5)})
+		}
+	}
+	in.House.Energy.UsedAlso = []string{"sensor.pool"}
+	in.Day["sensor.pool"] = pool
+	withPool := buildDigest(in, now)
+	if e := withPool.Energy; e == nil || !near(*e.Used, 210+30) || !near(*e.UsedBefore, 238+35) || !near(*withPool.Days[0].Used, 35) {
+		t.Errorf("with the pool: %+v", e)
+	}
+	// A door that read open from before the week to after it reads apart, as a sensor to check.
+	in.History["binary_sensor.side_door"] = []histRow{{S: "on", LU: float64(b[3].Unix())}, {S: "unavailable", LU: float64(b[9].Unix())}, {S: "on", LU: float64(b[9].Add(time.Minute).Unix())}}
+	stuck := buildDigest(in, now)
+	if e := stuck.Entries[1]; !e.AllWeek || e.Nights != 0 {
+		t.Errorf("stuck door: %+v", e)
+	}
+	found := false
+	for _, l := range stuck.Lines {
+		found = found || (l.Text == "binary_sensor.side_door read open all week: check the door or its sensor" && l.Warn)
+	}
+	if !found {
+		t.Errorf("no stuck-door line in %+v", stuck.Lines)
 	}
 }

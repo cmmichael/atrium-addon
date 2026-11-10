@@ -42,7 +42,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.26"
+const version = "0.9.27"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -348,7 +348,7 @@ func (in Ingress) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // writerPath is what a listed add-on may reach: enough to make the layout, nothing of Home Assistant's API.
 func writerPath(p string) bool {
 	switch {
-	case p == "/atrium/hello", p == "/atrium/setup", p == "/atrium/house", p == "/atrium/mapping", p == "/atrium/health", p == "/mcp":
+	case p == "/atrium/hello", p == "/atrium/setup", p == "/atrium/house", p == "/atrium/mapping", p == "/atrium/health", p == "/atrium/digest", p == "/mcp":
 		return true
 	case strings.HasPrefix(p, "/atrium/skill/"):
 		return true

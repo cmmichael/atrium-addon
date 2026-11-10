@@ -207,7 +207,7 @@ func TestAnAdministratorGrantsWritersFromTheSetupPage(t *testing.T) {
 	if w.Code != 404 {
 		t.Errorf("the home-network port answered: %d", w.Code)
 	}
-	if !writerPath("/atrium/mapping") || !writerPath("/atrium/health") || writerPath("/atrium/writers") || writerPath("/atrium/addons") || writerPath("/api/states") {
+	if !writerPath("/atrium/mapping") || !writerPath("/atrium/health") || !writerPath("/atrium/digest") || writerPath("/atrium/writers") || writerPath("/atrium/addons") || writerPath("/api/states") {
 		t.Error("writerPath lets a writer at the granting routes")
 	}
 	// A Supervisor that no longer lists add-ons in /supervisor/info: an empty list, and the page asks for a slug.

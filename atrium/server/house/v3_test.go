@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // A version 3 file: every section resolved into the house, the rules applied, what cannot be used reported.
@@ -266,5 +268,39 @@ func TestTariffSeasonsAreChecked(t *testing.T) {
 	}
 	if tf, p := render("    tiers: [{ rate: 0.3 }]\n    seasons: [{ from: \"06-01\", to: \"09-30\", tiers: [] }]\n"); tf != nil || len(p) != 1 || !strings.Contains(p[0], "season 1: no tiers") {
 		t.Errorf("tiers: %+v %v", tf, p)
+	}
+}
+
+func TestUsedTodayTakesOneMeterOrSeveral(t *testing.T) {
+	one, err := ParseMapping([]byte("version: 3\nenergy:\n  used_today: sensor.house_today\n"))
+	if err != nil || len(one.Energy.UsedToday) != 1 || one.Energy.UsedToday[0] != "sensor.house_today" {
+		t.Fatalf("one meter: %v %+v", err, one.Energy)
+	}
+	two, err := ParseMapping([]byte("version: 3\nenergy:\n  used_today: [sensor.house_today, sensor.pool_today]\n"))
+	if err != nil || len(two.Energy.UsedToday) != 2 || two.Energy.UsedToday[1] != "sensor.pool_today" {
+		t.Fatalf("two meters: %v %+v", err, two.Energy)
+	}
+	if out, _ := yaml.Marshal(one.Energy); !strings.Contains(string(out), "used_today: sensor.house_today\n") {
+		t.Errorf("one meter written back as %q", out)
+	}
+}
+
+func TestMetersWithoutStatisticsAreReported(t *testing.T) {
+	d := smallHome()
+	for _, id := range []string{"sensor.house_today", "sensor.pool_today"} {
+		d.Entities = append(d.Entities, map[string]any{"entity_id": id, "platform": "demo"})
+		d.States[id] = &State{State: "3", Attributes: map[string]any{"unit_of_measurement": "kWh"}}
+	}
+	m, err := ParseMapping([]byte("version: 3\nenergy:\n  used_today: [sensor.house_today, sensor.pool_today]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, problems := Render(m, d, Config{}) // not asked: nothing said
+	if h.Energy.UsedToday != "sensor.house_today" || len(h.Energy.UsedAlso) != 1 || len(problems) != 0 {
+		t.Fatalf("meters %q %v, problems %v", h.Energy.UsedToday, h.Energy.UsedAlso, problems)
+	}
+	d.Statistics = map[string]bool{"sensor.house_today": true}
+	if _, problems = Render(m, d, Config{}); len(problems) != 1 || !strings.Contains(problems[0], "sensor.pool_today") || !strings.Contains(problems[0], "statistics") {
+		t.Errorf("problems %v", problems)
 	}
 }

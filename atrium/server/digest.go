@@ -67,6 +67,9 @@ type digestLock struct {
 	Entity string `json:"entity"`
 	Name   string `json:"name"`
 	Nights int    `json:"nights"` // nights it stood unlocked for an hour or more
+	// AllWeek: unlocked from the first midnight to the last without once locking (a stuck sensor, or a lock
+	// out of use); the nights are then not counted as nights left unlocked.
+	AllWeek bool `json:"allWeek,omitempty"`
 }
 
 // digestEntry is a door, a gate or a garage door the layout watches.
@@ -74,6 +77,8 @@ type digestEntry struct {
 	Entity string `json:"entity"`
 	Name   string `json:"name"`
 	Nights int    `json:"nights"` // nights it stood open for an hour or more
+	// AllWeek: open from the first midnight to the last without once closing (a stuck sensor, or a door propped).
+	AllWeek bool `json:"allWeek,omitempty"`
 }
 
 type digestRing struct {
@@ -127,6 +132,7 @@ const (
 	nightEnds   = 6         // a night is midnight to six
 	unlockedFor = time.Hour // a lock unlocked this long in a night, or a door open, was left that way
 	digestTTL   = 30 * time.Minute
+	ringGap     = 10 * time.Second // doorbell presses closer than this are one ring
 )
 
 // midnights are the n+1 local midnights that bound the n whole days before today.
@@ -304,27 +310,61 @@ func nightsIn(rows []histRow, bounds []time.Time, is func(string) bool, atLeast 
 }
 
 // ringCount counts a doorbell's rings in a history: an event entity's state is the time of its last event, so
-// each new time within the days is a ring; a binary sensor rings each time it turns on.
+// each new time within the days is a ring; a binary sensor rings each time it turns on. Some doorbells report one
+// press twice a second apart (UniFi Protect does), so a ring within ringGap of the last counted one is the same.
 func ringCount(rows []histRow, from, to time.Time) int {
-	n, seen, wasOn := 0, map[string]bool{}, false
+	n, wasOn := 0, false
+	var last time.Time
+	count := func(t time.Time) {
+		if t.Before(from) || !t.Before(to) || (!last.IsZero() && t.Sub(last) < ringGap) {
+			return
+		}
+		last = t
+		n++
+	}
 	for i, r := range rows {
 		if r.S == "unavailable" || r.S == "unknown" {
 			continue
 		}
 		if t, err := time.Parse(time.RFC3339Nano, r.S); err == nil {
-			if !t.Before(from) && t.Before(to) && !seen[r.S] {
-				seen[r.S] = true
-				n++
+			if !t.Equal(last) {
+				count(t)
 			}
 			continue
 		}
 		on := r.S == "on"
 		if on && !wasOn && i > 0 {
-			n++
+			count(r.at())
 		}
 		wasOn = on
 	}
 	return n
+}
+
+// openAllWeek is whether an entity read open (or unlocked) from the first midnight to the last, never once
+// closed: more likely a sensor stuck or a door propped than seven nights of carelessness, so it reads apart.
+// Unavailable and unknown spells do not break it.
+func openAllWeek(rows []histRow, from, to time.Time, is func(string) bool) bool {
+	known := false
+	for i, r := range rows {
+		if r.S == "unavailable" || r.S == "unknown" {
+			continue
+		}
+		at := r.at()
+		if i+1 < len(rows) && !rows[i+1].at().After(from) {
+			continue // ended before the week began
+		}
+		if !at.Before(to) {
+			break
+		}
+		if !is(r.S) {
+			return false
+		}
+		if !at.After(from) {
+			known = true // the state the week began in
+		}
+	}
+	return known
 }
 
 // amount words a quantity: whole above a hundred, one decimal under.
@@ -420,7 +460,10 @@ func digestLines(r digestReport) []digestLine {
 	}
 	open := 0
 	for _, l := range r.Locks {
-		if l.Nights > 0 {
+		if l.AllWeek {
+			open++
+			add("lock", true, "%s read unlocked all week: check the lock or its sensor", l.Name)
+		} else if l.Nights > 0 {
 			open++
 			add("lock", true, "%s stayed unlocked on %s", l.Name, nightsWords(l.Nights))
 		}
@@ -434,7 +477,10 @@ func digestLines(r digestReport) []digestLine {
 	}
 	ajar := 0
 	for _, e := range r.Entries {
-		if e.Nights > 0 {
+		if e.AllWeek {
+			ajar++
+			add("entry", true, "%s read open all week: check the door or its sensor", e.Name)
+		} else if e.Nights > 0 {
 			ajar++
 			add("entry", true, "%s stood open on %s", e.Name, nightsWords(e.Nights))
 		}
@@ -519,8 +565,24 @@ func buildDigest(in digestInput, now time.Time) digestReport {
 		return t, total(before, digestDays-1)
 	}
 
+	// Further meters (a pool on its own tap) add to the main one's days; a day counts once the main meter has it.
+	addOn := func(days, more []*float64) {
+		for i := range days {
+			if days[i] != nil && i < len(more) && more[i] != nil {
+				v := *days[i] + *more[i]
+				days[i] = &v
+			}
+		}
+	}
+
 	e := digestEnergy{}
-	if used, before := figures(h.Energy.UsedToday, true, kWh(h.Energy.UsedToday)); used != nil {
+	used, usedBefore := figures(h.Energy.UsedToday, true, kWh(h.Energy.UsedToday))
+	for _, id := range h.Energy.UsedAlso {
+		now, before := figures(id, true, kWh(id))
+		addOn(used, now)
+		addOn(usedBefore, before)
+	}
+	if before := usedBefore; used != nil {
 		e.Used, e.UsedBefore = compare(used, before)
 		for i, v := range used {
 			r.Days[i].Used = v
@@ -592,13 +654,21 @@ func buildDigest(in digestInput, now time.Time) digestReport {
 	unlocked := func(s string) bool { return s == "unlocked" || s == "open" }
 	for _, id := range h.Security.Locks {
 		if rows := in.History[id]; len(rows) > 0 {
-			r.Locks = append(r.Locks, digestLock{Entity: id, Name: name(id), Nights: nightsIn(rows, week, unlocked, unlockedFor)})
+			l := digestLock{Entity: id, Name: name(id), AllWeek: openAllWeek(rows, week[0], week[digestDays], unlocked)}
+			if !l.AllWeek {
+				l.Nights = nightsIn(rows, week, unlocked, unlockedFor)
+			}
+			r.Locks = append(r.Locks, l)
 		}
 	}
 	open := func(s string) bool { return s == "on" || s == "open" }
 	for _, id := range h.Security.Entries {
 		if rows := in.History[id]; len(rows) > 0 {
-			r.Entries = append(r.Entries, digestEntry{Entity: id, Name: name(id), Nights: nightsIn(rows, week, open, unlockedFor)})
+			e := digestEntry{Entity: id, Name: name(id), AllWeek: openAllWeek(rows, week[0], week[digestDays], open)}
+			if !e.AllWeek {
+				e.Nights = nightsIn(rows, week, open, unlockedFor)
+			}
+			r.Entries = append(r.Entries, e)
 		}
 	}
 	for _, cam := range h.Security.Doorbells {
@@ -682,6 +752,7 @@ func (g *Gateway) digestInput(ctx context.Context, now time.Time) (digestInput, 
 		}
 	}
 	put(&day, h.Energy.UsedToday, h.Energy.SolarToday, h.Energy.WaterToday)
+	put(&day, h.Energy.UsedAlso...)
 	if h.Energy.Water != nil {
 		put(&day, h.Energy.Water.Today)
 	}

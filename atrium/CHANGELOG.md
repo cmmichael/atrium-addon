@@ -3,6 +3,19 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.27
+
+- The week at home counts a doorbell press once, even where the doorbell reports it twice a second apart.
+- A door or lock that read open all week, never once closed, says so in one line ("check the door or its
+  sensor") instead of counting seven nights.
+- `used_today` may list several meters (a pool on its own tap); the week, the Today card, the morning brief and
+  the hourly chart add them up.
+- The health report and `atrium_mapping_put` name a mapped meter Home Assistant keeps no long-term statistics
+  for, which the week at home and the charts cannot use.
+- The iPhone reads energy in the meter's own unit everywhere: the morning brief and the hourly chart were wrong
+  for a meter in MWh or Wh.
+- Add-ons allowed to write the layout may read `/atrium/digest`.
+
 ## 0.9.26
 
 - The week at home: a weekly report from Home Assistant's recorder of energy used and made against the week
