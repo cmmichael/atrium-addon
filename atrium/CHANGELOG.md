@@ -3,6 +3,17 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.26
+
+- The week at home: a weekly report from Home Assistant's recorder of energy used and made against the week
+  before, what the electricity came to, water, nights of poor air, locks and doors left open at night, and
+  doorbell rings. A new screen in both apps, `GET /atrium/digest`, the `atrium_digest` MCP tool, and
+  `digest: true` on `atrium_alert` to send it as a notification.
+- A solar inverter that stops reporting now reads as "Solar not reporting" on Home and the Energy screen, never
+  as 0 W, and the iPhone's solar charging card keeps its last answer through the gap instead of appearing or
+  clearing.
+- Add-ons allowed to write the layout may now read `/atrium/health`, so they can check a deploy.
+
 ## 0.9.25
 
 - The web app catches up with the iPhone app: what needs a look on Home (alerts, with the camera and a way to

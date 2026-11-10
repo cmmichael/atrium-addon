@@ -16,6 +16,7 @@ package main
 //	  action: { title: Lock, service: lock.lock, entity: lock.front_door }   # one button on the notification
 //	  live: true                      # a Live Activity too, until cleared or 8 hours
 //	  to: [owner@example.com]         # these logins' phones only; default: every phone that has signed in
+//	  digest: true                    # the body is the week's report (digest.go); title and id have defaults
 //
 // The apps register their device with POST /atrium/devices (the APNs token, the Live Activity push-to-start
 // token, the tokens of running activities). The owner's APNs key does the sending (apns.go).
@@ -59,6 +60,7 @@ type alert struct {
 	Action *alertAction `json:"action,omitempty"`
 	Live   bool         `json:"live"`
 	Clear  bool         `json:"clear"`
+	Digest bool         `json:"digest"` // the body is the week's report (digest.go)
 	To     []string     `json:"to"`
 	At     time.Time    `json:"at"`
 }
@@ -299,6 +301,18 @@ func (g *Gateway) alertEvents(ctx context.Context) error {
 		if err := json.Unmarshal(data, &al); err != nil {
 			log.Printf("alerts: an atrium_alert event the add-on could not read: %v", err)
 			continue
+		}
+		if al.Digest && !al.Clear {
+			rep, err := g.digest(ctx)
+			if err != nil || len(rep.Lines) == 0 {
+				why := "the recorder has nothing for the layout's entities"
+				if err != nil {
+					why = err.Error()
+				}
+				log.Printf("alerts: no week to send: %s", why)
+				continue
+			}
+			al.ID, al.Title, al.Body = firstNonEmpty(al.ID, "digest"), firstNonEmpty(al.Title, "The week at home"), digestBody(rep)
 		}
 		sent, errs := g.alerts.raise(al)
 		if al.Clear {

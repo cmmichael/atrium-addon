@@ -187,3 +187,5 @@ add-on by firing an `atrium_alert` event (`id`, `title`, `body`, `level`, `entit
 automation in Home Assistant and have the settling condition fire the same `id` with `clear: true`. What deserves
 one: an alarm state, a door or garage left unlocked or open late unless the sensor has been unavailable or the
 door has been that way all day, bins not out on collection day, the water shut off, a leak, smoke. Keep them rare.
+A weekly summary is one more: `digest: true` on `atrium_alert` has the add-on write the week at home into the
+body (DOCS, "The week at home"), so a Monday-morning automation needs nothing else.

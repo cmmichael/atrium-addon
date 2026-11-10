@@ -42,7 +42,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.25"
+const version = "0.9.26"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -148,6 +148,9 @@ type Gateway struct {
 	house        built
 	houseDefault built // the same without atrium.yaml, for ?layout=default
 	building     singleflight.Group
+	digestReport *digestReport // the week's report (digest.go), and when and for which layout it was worked out
+	digestAt     time.Time
+	digestGen    int
 	admins       map[string]bool // Home Assistant user id → is an administrator
 	adminsAt     time.Time
 	setup        Setup
@@ -345,7 +348,7 @@ func (in Ingress) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // writerPath is what a listed add-on may reach: enough to make the layout, nothing of Home Assistant's API.
 func writerPath(p string) bool {
 	switch {
-	case p == "/atrium/hello", p == "/atrium/setup", p == "/atrium/house", p == "/atrium/mapping", p == "/mcp":
+	case p == "/atrium/hello", p == "/atrium/setup", p == "/atrium/house", p == "/atrium/mapping", p == "/atrium/health", p == "/mcp":
 		return true
 	case strings.HasPrefix(p, "/atrium/skill/"):
 		return true
@@ -563,6 +566,8 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		g.serveAlerts(w, r, id)
 	case r.URL.Path == "/atrium/health":
 		g.serveHealth(w, r, id)
+	case r.URL.Path == "/atrium/digest":
+		g.serveDigest(w, r)
 	case r.URL.Path == "/atrium/config":
 		g.serveConfig(w, r, id)
 	case r.URL.Path == "/atrium/mapping":

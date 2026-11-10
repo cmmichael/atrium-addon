@@ -514,9 +514,19 @@ func isAdminUser(u map[string]any) bool {
 
 // wsRequest makes one request on a fresh signed-in WebSocket session.
 func (g *Gateway) wsRequest(ctx context.Context, kind string) (any, error) {
-	c, _, err := websocket.Dial(ctx, g.Addon.WS, nil)
+	results, errs, err := g.wsBatch(ctx, []map[string]any{{"type": kind}})
 	if err != nil {
 		return nil, err
+	}
+	return results[0], errs[0]
+}
+
+// wsBatch makes several requests on one fresh signed-in WebSocket session, each a message without its id.
+// An answer Home Assistant refused is that request's error; the others still stand.
+func (g *Gateway) wsBatch(ctx context.Context, reqs []map[string]any) ([]any, []error, error) {
+	c, _, err := websocket.Dial(ctx, g.Addon.WS, nil)
+	if err != nil {
+		return nil, nil, err
 	}
 	defer c.CloseNow()
 	c.SetReadLimit(-1)
@@ -529,29 +539,41 @@ func (g *Gateway) wsRequest(ctx context.Context, kind string) (any, error) {
 		return m, json.Unmarshal(data, &m)
 	}
 	if _, err := read(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	auth, _ := json.Marshal(map[string]any{"type": "auth", "access_token": g.Addon.Token})
 	if err := c.Write(ctx, websocket.MessageText, auth); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if ok, err := read(); err != nil || ok["type"] != "auth_ok" {
-		return nil, fmt.Errorf("refused: %v", err)
+		return nil, nil, fmt.Errorf("refused: %v", err)
 	}
-	req, _ := json.Marshal(map[string]any{"id": 1, "type": kind})
-	if err := c.Write(ctx, websocket.MessageText, req); err != nil {
-		return nil, err
+	for i, r := range reqs {
+		m := map[string]any{"id": i + 1}
+		for k, v := range r {
+			m[k] = v
+		}
+		req, _ := json.Marshal(m)
+		if err := c.Write(ctx, websocket.MessageText, req); err != nil {
+			return nil, nil, err
+		}
 	}
-	for {
+	results, errs := make([]any, len(reqs)), make([]error, len(reqs))
+	for left := len(reqs); left > 0; {
 		m, err := read()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		if m["type"] == "result" {
-			if ok, _ := m["success"].(bool); !ok {
-				return nil, fmt.Errorf("%s: %v", kind, m["error"])
-			}
-			return m["result"], nil
+		id, _ := m["id"].(float64)
+		if m["type"] != "result" || id < 1 || int(id) > len(reqs) {
+			continue
 		}
+		if ok, _ := m["success"].(bool); !ok {
+			errs[int(id)-1] = fmt.Errorf("%v: %v", reqs[int(id)-1]["type"], m["error"])
+		} else {
+			results[int(id)-1] = m["result"]
+		}
+		left--
 	}
+	return results, errs, nil
 }

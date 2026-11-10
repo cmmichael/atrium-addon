@@ -165,6 +165,38 @@ else leaves the house, and without a key the events are logged and not sent. The
 first time the app connects after allowing notifications; `GET /atrium/devices` lists them for administrators,
 `GET /atrium/alerts` the latest alerts.
 
+## The week at home
+
+Every Monday the house has a week to look back on, and Atrium writes it up from Home Assistant's own recorder:
+what the house used and the solar made against the week before, what the electricity came to on the tariff,
+water, the nights a room's CO₂ ran past the layout's "poor" band, locks left unlocked and doors left open for an
+hour or more at night (from 6 in the evening to 6 in the morning, in the house's own time zone), and how often
+each doorbell rang. It reads only what the layout already names (`energy`, `water`, `climate.air`, `security`),
+so nothing new needs mapping; a house without solar or locks simply gets no such line. Energy and water come from
+the recorder's daily statistics of the meters, never from adding up power, so an inverter that drops off for an
+hour leaves the totals right.
+
+The apps show it as **The week** (on Home in the web app, under More on the phone). `GET /atrium/digest` answers
+the same report as JSON, and the `atrium_digest` MCP tool gives it to an assistant. To have it arrive as a
+notification, fire `atrium_alert` with `digest: true`, and the add-on fills in the title ("The week at home") and
+the body:
+
+```yaml
+alias: The week at home
+triggers:
+  - trigger: time
+    at: "08:00:00"
+conditions:
+  - condition: time
+    weekday: mon
+actions:
+  - event: atrium_alert
+    event_data:
+      digest: true                    # the add-on writes the body; id (default "digest") and title may be given
+```
+
+When the recorder has nothing for the week, no notification is sent and the add-on's log says why.
+
 ## Good to know
 
 - Atrium is its own machine on your tailnet (named `atrium` unless you change it), using Tailscale's `tsnet`
