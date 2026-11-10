@@ -224,7 +224,7 @@ energy:
     temperature: sensor.water_temperature
     valve: { entity: valve.main_water, openOnly: true }   # valve or switch; openOnly: the apps may open it (two taps) and never close it
     mode: select.water_mode         # home / away / sleep: a select or input_select is settable, a sensor is shown
-    alerts: [binary_sensor.leak_laundry, binary_sensor.leak_kitchen]   # also hazards
+    alerts: [binary_sensor.leak_laundry, binary_sensor.meter_high_flow]   # flagged on Home while on: a moisture sensor as a water leak (critical), any other under its own name (a warning)
   tariff:                           # a card on Energy: the bill so far, the tier, the cost per hour now
     net: sensor.bill_net_energy     # kWh since the period began: a utility_meter on what the grid delivered (less what it received, where the utility nets them); its last_reset says when the period began
     period_days: 60                 # the bill's length; default 30

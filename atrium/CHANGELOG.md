@@ -3,6 +3,17 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.31
+
+- An alert on Home that is put away stays away. Both apps forgot it the next time they started, so an old
+  matter that had been dealt with kept coming back. It is now kept on the device (in the browser, for the web
+  app) until the thing clears, and shows again the next time it happens. A restart of Home Assistant, which
+  stamps every state with a new time, no longer brings a door or a notice back; smoke, gas, water on the floor
+  and the alarm do say so again.
+- A sensor under `water: alerts:` is called a water leak only when it is a moisture sensor. A meter's high-flow
+  notice or a shut-off valve's pending notices are warnings under their own names, not red leaks. A hazard that
+  is neither smoke, moisture nor gas goes by its own name instead of "Gas", and carbon monoxide is called that.
+
 ## 0.9.30
 
 - One camera whose clips will not list no longer blanks the others: it is logged, keeps the clips it had, and
