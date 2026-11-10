@@ -9,8 +9,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -118,10 +120,10 @@ func asNode(v any) mediaNode {
 var protectCamera = regexp.MustCompile(`/camera_proxy/(camera\.[a-z0-9_]+)`)
 
 // protectClips lists every UniFi Protect camera's events of the last day, newest first, by camera entity, over
-// one connection. Nil, nil: no UniFi Protect here.
-func (g *Gateway) protectClips(ctx context.Context, limit int) (map[string][]Clip, error) {
-	var out map[string][]Clip
-	err := g.haWS(ctx, func(call func(map[string]any) (any, error)) error {
+// one connection. A camera whose listing failed is named in failed and left out, so one camera that will not
+// answer does not blank the others. Nil, nil, nil: no UniFi Protect here.
+func (g *Gateway) protectClips(ctx context.Context, limit int) (out map[string][]Clip, failed []string, err error) {
+	err = g.haWS(ctx, func(call func(map[string]any) (any, error)) error {
 		browse := func(id string) (mediaNode, error) {
 			r, err := call(map[string]any{"type": "media_source/browse_media", "media_content_id": id})
 			return asNode(r), err
@@ -160,7 +162,12 @@ func (g *Gateway) protectClips(ctx context.Context, limit int) (map[string][]Cli
 		for camera, node := range nodes {
 			day, err := browse(node + ":all:recent:1")
 			if err != nil {
-				return err
+				if ctx.Err() != nil || len(nodes) == 1 {
+					return err // the connection itself, or the only camera there is
+				}
+				log.Printf("clips: %s did not list: %v", camera, err)
+				failed = append(failed, camera)
+				continue
 			}
 			list := []Clip{}
 			for _, c := range day.Children {
@@ -172,7 +179,8 @@ func (g *Gateway) protectClips(ctx context.Context, limit int) (map[string][]Cli
 		}
 		return nil
 	})
-	return out, err
+	sort.Strings(failed)
+	return out, failed, err
 }
 
 // resolveClip turns a clip's media id into the /api/… address of its video.

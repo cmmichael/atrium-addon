@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -34,10 +35,12 @@ type clipStore struct {
 	at      time.Time
 	loading chan struct{} // closed when the refresh under way ends
 	err     error         // the last refresh's
+	took    time.Duration // how long the last listing took
+	failed  []string      // cameras whose listing failed the last time (their kept clips stay)
 	thumbs  map[string]*thumbnail
 	bytes   int
 	// What lists the clips and fetches a picture (tests replace them).
-	list  func(ctx context.Context) (map[string][]Clip, error)
+	list  func(ctx context.Context) (lists map[string][]Clip, failed []string, err error)
 	fetch func(ctx context.Context, path string) ([]byte, string, error)
 }
 
@@ -89,10 +92,16 @@ func (g *Gateway) refreshClips(done chan struct{}) {
 	if list == nil {
 		list = g.listClips
 	}
-	lists, err := list(ctx)
+	began := time.Now()
+	lists, failed, err := list(ctx)
 	s.mu.Lock()
-	s.err = err
+	s.err, s.took, s.failed = err, time.Since(began), failed
 	if err == nil {
+		for _, camera := range failed { // a camera that did not answer keeps what it had
+			if kept, ok := s.lists[camera]; ok {
+				lists[camera] = kept
+			}
+		}
 		s.lists, s.at = lists, time.Now()
 	} else {
 		log.Printf("clips: %v", err)
@@ -106,15 +115,15 @@ func (g *Gateway) refreshClips(done chan struct{}) {
 }
 
 // listClips gathers the clips of every source Home Assistant has.
-func (g *Gateway) listClips(ctx context.Context) (map[string][]Clip, error) {
-	out, err := g.protectClips(ctx, clipsPerCam)
+func (g *Gateway) listClips(ctx context.Context) (map[string][]Clip, []string, error) {
+	out, failed, err := g.protectClips(ctx, clipsPerCam)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if out == nil {
 		out = map[string][]Clip{}
 	}
-	return out, nil
+	return out, failed, nil
 }
 
 // warmThumbs fetches the newest clips' thumbnails that are not kept yet, a few at a time.
@@ -146,9 +155,17 @@ func (g *Gateway) warmThumbs(lists map[string][]Clip) {
 	wg.Wait()
 }
 
-// thumbPath says whether a path is a clip's picture: the only ones /atrium/thumb fetches.
+// thumbPath says whether a path is a clip's picture, as a listing gives it: the only ones /atrium/thumb fetches.
+// Nothing encoded (a second decoding further on must not turn it into another path), and no way up the tree.
 func thumbPath(p string) bool {
-	return strings.HasPrefix(p, "/api/unifiprotect/thumbnail/") || strings.HasPrefix(p, "/api/nest/event_media/")
+	if !strings.HasPrefix(p, "/api/unifiprotect/thumbnail/") && !strings.HasPrefix(p, "/api/nest/event_media/") {
+		return false
+	}
+	if strings.ContainsAny(p, "%\\#") {
+		return false
+	}
+	at, _, _ := strings.Cut(p, "?")
+	return path.Clean(at) == at
 }
 
 // thumb is one clip's picture, from memory or from Home Assistant.
@@ -222,7 +239,7 @@ func (g *Gateway) fetchPicture(ctx context.Context, p string) ([]byte, string, e
 // serveThumb answers /atrium/thumb?p=<a clip's thumb, as the listing gave it>.
 func (g *Gateway) serveThumb(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.Query().Get("p")
-	if !thumbPath(p) || strings.Contains(p, "..") {
+	if !thumbPath(p) {
 		http.Error(w, "p=<a clip's thumb>", http.StatusBadRequest)
 		return
 	}
@@ -237,4 +254,35 @@ func (g *Gateway) serveThumb(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", kind)
 	w.Header().Set("Cache-Control", "private, max-age=86400, immutable") // an event's picture does not change
 	w.Write(data)
+}
+
+// clipsHealth is what /atrium/health says of the clips: enough to see that listings happen and how long they
+// take, without a picture or a title.
+type clipsHealth struct {
+	ListedAt    *time.Time `json:"listedAt,omitempty"` // nil: nobody has asked since the add-on started
+	Seconds     float64    `json:"seconds"`            // how long the last listing took
+	Cameras     int        `json:"cameras"`
+	Clips       int        `json:"clips"`
+	Failed      []string   `json:"failed,omitempty"` // cameras whose listing failed the last time
+	Error       string     `json:"error,omitempty"`  // why the last listing failed as a whole
+	Thumbnails  int        `json:"thumbnails"`       // kept in memory
+	ThumbnailKB int        `json:"thumbnailKB"`
+}
+
+func (g *Gateway) clipsHealth() clipsHealth {
+	s := &g.clips
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	h := clipsHealth{Seconds: float64(s.took.Milliseconds()) / 1000, Cameras: len(s.lists), Failed: s.failed, Thumbnails: len(s.thumbs), ThumbnailKB: s.bytes >> 10}
+	if !s.at.IsZero() {
+		at := s.at
+		h.ListedAt = &at
+	}
+	for _, list := range s.lists {
+		h.Clips += len(list)
+	}
+	if s.err != nil {
+		h.Error = s.err.Error()
+	}
+	return h
 }

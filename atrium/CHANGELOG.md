@@ -3,6 +3,15 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.30
+
+- One camera whose clips will not list no longer blanks the others: it is logged, keeps the clips it had, and
+  the rest are answered.
+- `/atrium/thumb` takes only a clip's thumbnail exactly as a listing gave it: nothing encoded, no way up the
+  path.
+- The health report has a `clips` block: when the clips were last listed, how long that took, how many cameras
+  and clips, any camera that failed, and how many thumbnails are kept.
+
 ## 0.9.29
 
 - A Nest camera's live view starts. Google refuses a WebRTC offer whose parts are not audio, video and data in

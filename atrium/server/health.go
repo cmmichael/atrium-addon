@@ -51,6 +51,7 @@ type healthReport struct {
 		Since      *time.Time `json:"since,omitempty"`
 		Reconnects int        `json:"reconnects"`
 	} `json:"alerts"`
+	Clips clipsHealth `json:"clips"` // the cameras' clips as last listed (clipcache.go)
 }
 
 // serveHealth answers anyone allowed in.
@@ -92,6 +93,7 @@ func (g *Gateway) serveHealth(w http.ResponseWriter, r *http.Request, id Identit
 		h.Latest = g.updateLatest
 	}
 	g.mu.Unlock()
+	h.Clips = g.clipsHealth() // their own lock
 	sort.Strings(h.House.Unavailable)
 	if g.alerts != nil {
 		h.Alerts.Pushes = g.alerts.apns != nil

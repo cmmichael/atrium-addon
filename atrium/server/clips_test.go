@@ -32,11 +32,14 @@ func TestClipsAreKeptAndRefreshedBehind(t *testing.T) {
 	g := &Gateway{}
 	listed := 0
 	release := make(chan struct{}, 8)
-	g.clips.list = func(ctx context.Context) (map[string][]Clip, error) {
+	g.clips.list = func(ctx context.Context) (map[string][]Clip, []string, error) {
 		listed++
 		n := listed
 		<-release
-		return map[string][]Clip{"camera.door": {{ID: fmt.Sprint("clip", n)}}}, nil
+		if n == 1 {
+			return map[string][]Clip{"camera.door": {{ID: "clip1"}}, "camera.gate": {{ID: "gate1"}}}, nil, nil
+		}
+		return map[string][]Clip{"camera.door": {{ID: fmt.Sprint("clip", n)}}}, []string{"camera.gate"}, nil // the gate did not answer
 	}
 	g.clips.fetch = func(ctx context.Context, p string) ([]byte, string, error) { return []byte("jpg"), "image/jpeg", nil }
 	release <- struct{}{}
@@ -65,6 +68,13 @@ func TestClipsAreKeptAndRefreshedBehind(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+	// A camera whose listing failed keeps the clips it had, and the health report names it.
+	if len(all["camera.gate"]) != 1 || all["camera.gate"][0].ID != "gate1" {
+		t.Errorf("the camera that did not answer lost its clips: %v", all)
+	}
+	if h := g.clipsHealth(); h.ListedAt == nil || h.Cameras != 2 || h.Clips != 2 || len(h.Failed) != 1 || h.Failed[0] != "camera.gate" {
+		t.Errorf("health: %+v", h)
+	}
 }
 
 func TestThumbnailsAreFetchedOnceAndOnlyClipsPictures(t *testing.T) {
@@ -87,7 +97,8 @@ func TestThumbnailsAreFetchedOnceAndOnlyClipsPictures(t *testing.T) {
 	if fetched != 1 {
 		t.Errorf("fetched %d times, want once", fetched)
 	}
-	for _, p := range []string{"/api/states", "/api/unifiprotect/thumbnail/../../states", "http://elsewhere/x", ""} {
+	for _, p := range []string{"/api/states", "/api/unifiprotect/thumbnail/../../states", "http://elsewhere/x", "",
+		"/api/unifiprotect/thumbnail/%2e%2e/%2e%2e/states", "/api/unifiprotect/thumbnail/a/./b", "/api/unifiprotect/thumbnail//x", "/api/unifiprotect/thumbnail/n/e#x"} {
 		if w := ask(p); w.Code != 400 {
 			t.Errorf("%q answered %d, want 400", p, w.Code)
 		}
