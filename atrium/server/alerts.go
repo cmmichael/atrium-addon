@@ -389,6 +389,9 @@ func joinProblems(errs []string) string {
 	return "; " + strings.Join(errs, "; ")
 }
 
+// duplicateWithin is how soon the same alert again counts as the same event.
+const duplicateWithin = 2 * time.Second
+
 // raise sends one alert to every phone it is for: a notification (or its withdrawal), and a Live Activity when
 // asked. Returns how many pushes went out and what went wrong.
 func (a *alerts) raise(al alert) (sent int, problems []string) {
@@ -405,6 +408,17 @@ func (a *alerts) raise(al alert) (sent int, problems []string) {
 	}
 	al.At = time.Now()
 	a.mu.Lock()
+	// The same alert again within moments is one event reported twice (a UniFi Protect doorbell changes its event
+	// entity twice per press, 0.05 to 0.6 s apart): one push, not two.
+	for i := len(a.recent) - 1; i >= 0; i-- {
+		if was := a.recent[i]; was.ID == al.ID {
+			if gap := al.At.Sub(was.At); gap < duplicateWithin && was.Title == al.Title && was.Body == al.Body && was.Clear == al.Clear {
+				a.mu.Unlock()
+				return 0, []string{fmt.Sprintf("the same alert came %.1f s ago; not sent twice", gap.Seconds())}
+			}
+			break
+		}
+	}
 	a.recent = append(a.recent, al)
 	if len(a.recent) > 50 {
 		a.recent = a.recent[len(a.recent)-50:]

@@ -3,6 +3,11 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.34
+
+- The same alert fired twice within 2 seconds is sent once. A UniFi Protect doorbell reports each press twice, so
+  every ring sent two notifications.
+
 ## 0.9.33
 
 - Alerts without an APNs key of your own: set `push_relay` to a push relay's address and alerts go through it

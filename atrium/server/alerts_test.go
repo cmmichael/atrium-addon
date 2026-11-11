@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // An APNs that records what it is sent: the path (device token), the headers that matter, the payload.
@@ -176,6 +177,21 @@ func TestWithoutAnAPNSKeyAlertsAreLoggedOnly(t *testing.T) {
 	}
 	if a.recent[0].ID != "bins-out" {
 		t.Errorf("the id from the title: %q", a.recent[0].ID)
+	}
+	// Reported twice in a moment (a doorbell's event entity does this): the second is not sent; a different body,
+	// or a clear, is a new alert.
+	if sent, problems := a.raise(alert{Title: "Bins out"}); sent != 0 || len(problems) != 1 || !strings.Contains(problems[0], "not sent twice") {
+		t.Errorf("duplicate: %d %v", sent, problems)
+	}
+	if _, problems := a.raise(alert{Title: "Bins out", Body: "Tomorrow is collection day"}); strings.Contains(strings.Join(problems, ""), "twice") {
+		t.Errorf("a new body was taken for a duplicate: %v", problems)
+	}
+	if _, problems := a.raise(alert{Title: "Bins out", Clear: true}); strings.Contains(strings.Join(problems, ""), "twice") {
+		t.Errorf("a clear was taken for a duplicate: %v", problems)
+	}
+	a.recent[len(a.recent)-1].At = time.Now().Add(-3 * time.Second)
+	if _, problems := a.raise(alert{Title: "Bins out", Clear: true}); strings.Contains(strings.Join(problems, ""), "twice") {
+		t.Errorf("the same alert 3 s later was taken for a duplicate: %v", problems)
 	}
 	for svc, want := range map[string]string{"lock.lock": "atrium.lock", "cover.close_cover": "atrium.close", "alarm_control_panel.alarm_arm_away": "atrium.arm", "switch.turn_off": "atrium.off", "script.turn_on": "atrium.on", "script.bins": "atrium.act", "lock.unlock": "atrium.unlock", "cover.open_cover": "atrium.unlock", "input_boolean.turn_on": "atrium.done"} {
 		if got := category(alert{Action: &alertAction{Service: svc}}); got != want {

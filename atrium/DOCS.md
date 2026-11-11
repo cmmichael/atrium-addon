@@ -172,6 +172,11 @@ long press (or a pull-down) on the notification, and its label comes from a fixe
 does, not from `title`: Lock, Unlock (red, and the phone must be unlocked first), Close, Arm, Turn on, Turn off,
 Done (an `input_boolean` or a to-do item) or Do it.
 
+The same alert (same id, title and body) fired again within 2 seconds is sent once: some integrations report one
+event twice (a UniFi Protect doorbell's event entity changes twice per press), and one ring should be one push. A
+sensor that closes briefly on its own every day, like a water valve's nightly self test, still needs a `for:` hold
+on the automation's trigger.
+
 Apple carries the notifications, so the add-on needs an APNs key from the Apple developer account that publishes
 the app: developer.apple.com → Certificates, Identifiers & Profiles → Keys → +, tick *Apple Push Notifications
 service (APNs)*, download the `.p8` file (once; it cannot be downloaded again). In the add-on's Configuration tab
