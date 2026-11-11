@@ -6,6 +6,7 @@ package house
 
 import (
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -306,6 +307,8 @@ type Dump struct {
 	// Integrations load in the first minutes, so what is restored then means nothing yet; see Settled.
 	Running    bool
 	RunningFor time.Duration
+	// Home Assistant's currency from get_config ("USD", "EUR"): the tariff's sign when the layout names none.
+	Currency string
 }
 
 // SettleAfter is how long after Home Assistant starts its restored entities are taken to mean something: an
@@ -356,4 +359,30 @@ func Stale(d Dump) []StaleEntity {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+// CurrencySign is how the apps write an ISO 4217 code: the usual sign where there is one, else the code and a space.
+func CurrencySign(code string) string {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	switch code {
+	case "":
+		return "$"
+	case "USD", "CAD", "AUD", "NZD", "SGD", "HKD", "MXN":
+		return "$"
+	case "EUR":
+		return "€"
+	case "GBP":
+		return "£"
+	case "JPY", "CNY":
+		return "¥"
+	case "INR":
+		return "₹"
+	case "KRW":
+		return "₩"
+	case "ILS":
+		return "₪"
+	case "BRL":
+		return "R$"
+	}
+	return code + " "
 }

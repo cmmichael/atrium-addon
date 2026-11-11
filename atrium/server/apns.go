@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,6 +33,9 @@ type apnsClient struct {
 	// Where to post: Apple's servers by environment, or, in a development run (ATRIUM_APNS_DIR), a folder that
 	// collects the payloads for `xcrun simctl push`.
 	production, sandbox, dir string
+	// With no key of its own: the publisher's relay, which holds the key and signs for every household
+	// (POST <relay>/v1/push). Apple then sees the same as before; the relay sees the device token and the payload.
+	relay string
 
 	mu      sync.Mutex
 	token   string
@@ -41,7 +45,14 @@ type apnsClient struct {
 // newAPNS reads the owner's key. nil when the options name none: alerts are then logged and not sent.
 func newAPNS(o Options) (*apnsClient, error) {
 	if o.APNSKey == "" && os.Getenv("ATRIUM_APNS_DIR") == "" {
-		return nil, nil
+		if o.PushRelay == "" {
+			return nil, nil
+		}
+		u, err := url.Parse(o.PushRelay)
+		if err != nil || u.Scheme != "https" || u.Host == "" {
+			return nil, fmt.Errorf("push_relay must be an https address, like https://push.example.com")
+		}
+		return &apnsClient{relay: strings.TrimSuffix(o.PushRelay, "/"), client: &http.Client{Timeout: 20 * time.Second}}, nil
 	}
 	c := &apnsClient{teamID: o.APNSTeamID, keyID: o.APNSKeyID, bundle: firstNonEmpty(o.APNSBundle, "com.cmmichael.atrium"),
 		client: &http.Client{Timeout: 20 * time.Second}, production: "https://api.push.apple.com", sandbox: "https://api.sandbox.push.apple.com", dir: os.Getenv("ATRIUM_APNS_DIR")}
@@ -127,6 +138,9 @@ func (c *apnsClient) send(p push) error {
 		data, _ := json.MarshalIndent(out, "", "  ")
 		return os.WriteFile(filepath.Join(c.dir, name), data, 0o644)
 	}
+	if c.relay != "" {
+		return c.sendByRelay(p, body)
+	}
 	token, err := c.jwt()
 	if err != nil {
 		return err
@@ -161,6 +175,35 @@ func (c *apnsClient) send(p push) error {
 	data, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
 	json.Unmarshal(data, &e)
 	return &apnsError{res.StatusCode, e.Reason}
+}
+
+// sendByRelay hands one push to the relay, which answers with Apple's own status and reason.
+func (c *apnsClient) sendByRelay(p push, payload []byte) error {
+	env := "production"
+	if p.env == "sandbox" {
+		env = "sandbox"
+	}
+	priority := p.priority
+	if priority == 0 {
+		priority = 10
+	}
+	body, _ := json.Marshal(map[string]any{"token": p.token, "env": env, "pushType": p.pushType, "collapse": p.collapse,
+		"priority": priority, "payload": json.RawMessage(payload)})
+	res, err := c.client.Post(c.relay+"/v1/push", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode == 200 {
+		return nil
+	}
+	var e struct {
+		Reason string `json:"reason"`
+		Error  string `json:"error"`
+	}
+	data, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+	json.Unmarshal(data, &e)
+	return &apnsError{res.StatusCode, firstNonEmpty(e.Reason, e.Error, "from the relay")}
 }
 
 func shortToken(t string) string {

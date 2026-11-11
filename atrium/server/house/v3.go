@@ -535,7 +535,7 @@ func renderV3(m Mapping, h *House, d Dump, exists func(where, id string) string,
 				t.PeriodDays = 30
 			}
 			if t.Currency == "" {
-				t.Currency = "$"
+				t.Currency = CurrencySign(d.Currency) // Home Assistant's own setting
 			}
 			ok := true
 			// tiers checks one list: rates above zero, each up_to above the one before, none on the last.

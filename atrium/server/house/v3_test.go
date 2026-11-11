@@ -233,6 +233,14 @@ func TestTariffIsChecked(t *testing.T) {
 	if tf, p := render("    tiers: [{ rate: 0.31 }]\n"); tf == nil || tf.PeriodDays != 30 || tf.Currency != "$" || len(p) != 0 {
 		t.Errorf("flat: %+v %v", tf, p)
 	}
+	d.Currency = "EUR" // Home Assistant's setting fills the sign the layout leaves out, and never overrides it
+	if tf, _ := render("    tiers: [{ rate: 0.31 }]\n"); tf == nil || tf.Currency != "€" {
+		t.Errorf("from Home Assistant: %+v", tf)
+	}
+	if tf, _ := render("    currency: \"CHF \"\n    tiers: [{ rate: 0.31 }]\n"); tf == nil || tf.Currency != "CHF " {
+		t.Errorf("layout wins: %+v", tf)
+	}
+	d.Currency = ""
 	if tf, p := render("    tiers: [{ up_to: 700, rate: 0.2 }, { up_to: 500, rate: 0.3 }, { rate: 0.4 }]\n"); tf != nil || len(p) != 1 || !strings.Contains(p[0], "tier 2") {
 		t.Errorf("order: %+v %v", tf, p)
 	}

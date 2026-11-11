@@ -417,7 +417,7 @@ type TariffMapping struct {
 	Tiers       []TierMapping `yaml:"tiers"`
 	Fixed       float64       `yaml:"fixed,omitempty"`    // per period, before tax
 	Tax         float64       `yaml:"tax,omitempty"`      // a fraction of the whole: 0.10 for ten percent
-	Currency    string        `yaml:"currency,omitempty"` // the sign, default $
+	Currency    string        `yaml:"currency,omitempty"` // the sign; default from Home Assistant's currency setting
 	Estimate    bool          `yaml:"estimate,omitempty"` // the meter is not the utility's: the apps say "estimate"
 	// Seasons with tiers of their own, by MM-DD dates that may wrap the year; the tiers above serve the dates no
 	// season covers (and may be left out when the seasons cover the year).

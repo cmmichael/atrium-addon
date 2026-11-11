@@ -131,6 +131,7 @@ func (g *Gateway) dump(ctx context.Context) (house.Dump, error) {
 	}
 	if cfg, _ := results[6].(map[string]any); cfg != nil {
 		d.Name, _ = cfg["location_name"].(string)
+		d.Currency, _ = cfg["currency"].(string)
 		state, _ := cfg["state"].(string)
 		d.Running = state == "RUNNING"
 	}

@@ -177,7 +177,12 @@ the app: developer.apple.com → Certificates, Identifiers & Profiles → Keys �
 service (APNs)*, download the `.p8` file (once; it cannot be downloaded again). In the add-on's Configuration tab
 set `apns_team_id` (Membership details), `apns_key_id` (the key's id) and `apns_key` (the whole contents of the
 `.p8` file, `-----BEGIN PRIVATE KEY-----` to the end). Apple sees the device token, the title and the body; nothing
-else leaves the house, and without a key the events are logged and not sent. The phones register themselves the
+else leaves the house, and without a key the events are logged and not sent.
+
+Without a key of your own, set `push_relay` to the address of a push relay instead: a small service that holds the
+publisher's key and sends for every household that uses it (its source is `relay/` in Atrium's repository). The
+relay then sees each alert's device token, title and body on the way to Apple; it keeps none of it and logs no
+content. A key of your own, when set, is always used first. The phones register themselves the
 first time the app connects after allowing notifications; `GET /atrium/devices` lists them for administrators,
 `GET /atrium/alerts` the latest alerts.
 

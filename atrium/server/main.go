@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,7 +43,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.32"
+const version = "0.9.33"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -71,6 +72,8 @@ type Options struct {
 	APNSKeyID  string `json:"apns_key_id"`
 	APNSKey    string `json:"apns_key"`    // the .p8 file's contents
 	APNSBundle string `json:"apns_bundle"` // the app's bundle id; default com.cmmichael.atrium
+	// With no APNs key: a relay that holds the publisher's key and sends for the add-on (relay/ in the source).
+	PushRelay string `json:"push_relay"`
 }
 
 // Identity is what Tailscale says about the other end of a connection.
@@ -605,7 +608,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		http.ServeFile(w, r, filepath.Join(g.SkillDir, name))
 	case r.URL.Path == "/api/websocket":
-		log.Printf("%s (%s) connected", id.Login, id.Device)
+		log.Printf("%s (%s) connected from %s", id.Login, id.Device, r.RemoteAddr)
 		g.serveWebSocket(w, r, id, up)
 	case strings.HasPrefix(r.URL.Path, "/api/hassio"): // /api/hassio/…, /api/hassio_ingress/…, /api/hassio_app/…
 		http.Error(w, "the Supervisor is not reachable through Atrium", http.StatusForbidden) // the app has no use for it
@@ -904,7 +907,9 @@ func main() {
 	} else {
 		g.alerts.apns = apns
 		if apns == nil {
-			log.Printf("alerts: no apns_key in the options; atrium_alert events are logged, not sent to phones")
+			log.Printf("alerts: no apns_key or push_relay in the options; atrium_alert events are logged, not sent to phones")
+		} else if apns.relay != "" {
+			log.Printf("alerts: sent through the relay at %s", apns.relay)
 		}
 	}
 
@@ -1148,10 +1153,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
+	plain = keepAddr{plain}
 	g.mu.Lock()
 	scheme = "http"
 	g.mu.Unlock()
-	if secure, err := srv.ListenTLS("tcp", ":443"); err == nil {
+	if secure, err := listenTLS(srv, status); err == nil {
 		go serve(secure, "https")
 		g.mu.Lock()
 		scheme = "https"
@@ -1164,6 +1170,47 @@ func main() {
 	g.mu.Unlock()
 	fmt.Fprintln(os.Stderr)
 	serve(plain, "http")
+}
+
+// listenTLS is tsnet's ListenTLS with each connection's address kept (keepAddr), so a handshake the phone abandons
+// is logged with the address it came from rather than "%!s(<nil>)".
+func listenTLS(srv *tsnet.Server, st *ipnstate.Status) (net.Listener, error) {
+	if !st.CurrentTailnet.MagicDNSEnabled || len(st.CertDomains) == 0 {
+		return srv.ListenTLS("tcp", ":443") // and its explanation of what to turn on
+	}
+	lc, err := srv.LocalClient()
+	if err != nil {
+		return nil, err
+	}
+	ln, err := srv.Listen("tcp", ":443")
+	if err != nil {
+		return nil, err
+	}
+	return tls.NewListener(keepAddr{ln}, &tls.Config{GetCertificate: lc.GetCertificate}), nil
+}
+
+// keepAddr remembers each connection's remote address when it is accepted: a tailnet connection that the far side
+// has reset reports none, and Go's server then logs "TLS handshake error from %!s(<nil>)".
+type keepAddr struct{ net.Listener }
+
+func (l keepAddr) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return addrConn{c, c.RemoteAddr()}, nil
+}
+
+type addrConn struct {
+	net.Conn
+	remote net.Addr
+}
+
+func (c addrConn) RemoteAddr() net.Addr {
+	if c.remote != nil {
+		return c.remote
+	}
+	return c.Conn.RemoteAddr()
 }
 
 var appUA = regexp.MustCompile(`\bAtrium/(\d+(?:\.\d+)*)`)

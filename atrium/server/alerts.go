@@ -421,7 +421,7 @@ func (a *alerts) raise(al alert) (sent int, problems []string) {
 	home := a.home
 	a.mu.Unlock()
 	if a.apns == nil {
-		return 0, []string{"no APNs key in the add-on's options: alerts are logged only"}
+		return 0, []string{"no APNs key or push relay in the add-on's options: alerts are logged only"}
 	}
 	if len(to) == 0 {
 		return 0, []string{"no phone has registered for alerts yet"}

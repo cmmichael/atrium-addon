@@ -3,6 +3,16 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.33
+
+- Alerts without an APNs key of your own: set `push_relay` to a push relay's address and alerts go through it
+  (see Documentation). A key of your own is still used first.
+- The tariff's currency comes from Home Assistant's own currency setting when the layout names none. Before, it
+  was always `$`.
+- Two reminders on one helper both show on Home in the web app (the iPhone app had this already).
+- The log names the address each app connects from, and a handshake a phone abandons is logged with its address
+  instead of `%!s(<nil>)`.
+
 ## 0.9.32
 
 - A sensor the layout names twice (under `water: alerts:` and under `attention: include:`, say) shows once on

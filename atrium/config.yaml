@@ -1,5 +1,5 @@
 name: Atrium
-version: "0.9.32"
+version: "0.9.33"
 slug: atrium
 description: Your house in the Atrium app and on the web, from anywhere, over your tailnet
 url: https://github.com/cmmichael/atrium-addon
@@ -49,3 +49,4 @@ schema:
   apns_key_id: str?
   apns_key: password?
   apns_bundle: str?
+  push_relay: str?
