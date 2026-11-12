@@ -3,6 +3,13 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.35
+
+- Ask the house is on Home, and a question can be spoken: tap it and it listens, shows the words as they are
+  said, sends the question when you stop, and reads the answer aloud. The microphone button in Ask does the same.
+  Speech is turned into words by the browser (Safari: Apple; Chrome: Google). Firefox has no speech recognition,
+  so there Ask takes typed questions only.
+
 ## 0.9.34
 
 - The same alert fired twice within 2 seconds is sent once. A UniFi Protect doorbell reports each press twice, so
