@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.39"
+const version = "0.9.40"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -158,6 +158,9 @@ type Gateway struct {
 	alertsConnects  int
 	appSeen         time.Time // the last request from an app (not the panel, not an add-on), and whose
 	appWho          string
+	appSaved        time.Time // when appSeen was last written to appsPath, and whose it was
+	appSavedBy      string
+	appsPath        string        // keeps the last contact across restarts (apps.go)
 	alertsDown      time.Time     // when the last subscription ended (or the first attempt failed); zero while listening
 	alertsTries     int           // attempts that failed since then
 	quit            chan struct{} // closed when the add-on is told to stop (stop.go)
@@ -532,9 +535,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		return
 	}
 	if ok && !id.HomeAssistant && !id.Addon {
-		g.mu.Lock()
-		g.appSeen, g.appWho = time.Now(), id.Login+" ("+id.Device+")"
-		g.mu.Unlock()
+		g.appContact(id.Login + " (" + id.Device + ")")
 	}
 	if r.URL.Path == "/atrium/hello" {
 		// Who the app is to this house. Answered to anyone on the tailnet, so the app can say why not. The house's
@@ -925,6 +926,7 @@ func main() {
 		g.config = cfg
 	}
 	g.alerts = &alerts{path: env("ATRIUM_DEVICES", "/data/devices.json")}
+	g.appsPath = env("ATRIUM_APPS", "/data/apps.json")
 	if apns, err := newAPNS(opts); err != nil {
 		log.Printf("alerts: %v; alerts are logged only until the options are right", err)
 	} else {
@@ -963,6 +965,10 @@ func main() {
 		if os.Getenv("ATRIUM_DEVICES") == "" {
 			g.alerts.path = os.TempDir() + "/atrium-devices.json"
 		}
+		if os.Getenv("ATRIUM_APPS") == "" {
+			g.appsPath = os.TempDir() + "/atrium-apps.json"
+		}
+		g.loadAppContact()
 		g.alerts.load()
 		go g.watchAlerts()
 		go func() {
@@ -1015,6 +1021,7 @@ func main() {
 	go g.watchMapping()
 	go g.houseJSON(context.Background()) // the first render before anyone asks
 	g.alerts.load()
+	g.loadAppContact()
 	go g.watchAlerts()
 	go func() {
 		home := g.homeName(context.Background())

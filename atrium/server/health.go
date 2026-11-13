@@ -29,7 +29,7 @@ type healthReport struct {
 	// cannot reach the add-on cannot say so here.
 	Apps struct {
 		LastContact *time.Time `json:"lastContact,omitempty"`
-		AgeSeconds  int        `json:"ageSeconds"`
+		AgeSeconds  *int       `json:"ageSeconds,omitempty"` // absent until an app has been heard from
 		Who         string     `json:"who,omitempty"`
 	} `json:"apps"`
 	Tailnet struct {
@@ -77,7 +77,8 @@ func (g *Gateway) serveHealth(w http.ResponseWriter, r *http.Request, id Identit
 	}
 	if !g.appSeen.IsZero() {
 		t := g.appSeen
-		h.Apps.LastContact, h.Apps.AgeSeconds, h.Apps.Who = &t, int(time.Since(t).Seconds()), g.appWho
+		age := int(time.Since(t).Seconds())
+		h.Apps.LastContact, h.Apps.AgeSeconds, h.Apps.Who = &t, &age, g.appWho
 	}
 	h.Tailnet.State, h.Tailnet.Address, h.Tailnet.Owner = g.setup.State, g.setup.Address, g.Owner
 	h.Mapping.Exists, h.Mapping.Custom, h.Mapping.Rooms, h.Mapping.Stale = !g.mappingAt.IsZero(), g.mapping.Custom(), g.rooms, len(g.stale)

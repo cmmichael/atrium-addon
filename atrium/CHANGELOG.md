@@ -3,6 +3,12 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.40
+
+- Health's last app contact survives restarts and updates: it is kept in the add-on's data folder, so a phone that
+  has not got through for two days still shows a two-day gap after the add-on restarts. Until any app has been
+  heard from, `apps` is empty instead of saying an age of 0.
+
 ## 0.9.39
 
 - Health says when an app last got through. `/atrium/health` has `apps`: the time of the last request from an app
