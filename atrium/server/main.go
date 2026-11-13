@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.38"
+const version = "0.9.39"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -156,6 +156,8 @@ type Gateway struct {
 	alertsListening bool
 	alertsSince     time.Time
 	alertsConnects  int
+	appSeen         time.Time // the last request from an app (not the panel, not an add-on), and whose
+	appWho          string
 	alertsDown      time.Time     // when the last subscription ended (or the first attempt failed); zero while listening
 	alertsTries     int           // attempts that failed since then
 	quit            chan struct{} // closed when the add-on is told to stop (stop.go)
@@ -528,6 +530,11 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		w.Header().Set("Retry-After", "5")
 		http.Error(w, "Atrium is still finding out who signed it in to the tailnet; try again in a moment", http.StatusServiceUnavailable)
 		return
+	}
+	if ok && !id.HomeAssistant && !id.Addon {
+		g.mu.Lock()
+		g.appSeen, g.appWho = time.Now(), id.Login+" ("+id.Device+")"
+		g.mu.Unlock()
 	}
 	if r.URL.Path == "/atrium/hello" {
 		// Who the app is to this house. Answered to anyone on the tailnet, so the app can say why not. The house's

@@ -24,6 +24,14 @@ type healthReport struct {
 		AgeSeconds  int        `json:"ageSeconds"`
 		Reachable   bool       `json:"reachable"` // heard from within the last two minutes
 	} `json:"homeAssistant"`
+	// The last request from an app (the phone, a wall panel), not the Home Assistant panel. Nothing since the
+	// start, or a long gap while phones are registered for alerts, means the apps cannot get through: an app that
+	// cannot reach the add-on cannot say so here.
+	Apps struct {
+		LastContact *time.Time `json:"lastContact,omitempty"`
+		AgeSeconds  int        `json:"ageSeconds"`
+		Who         string     `json:"who,omitempty"`
+	} `json:"apps"`
 	Tailnet struct {
 		State   string `json:"state"` // starting, needs-login, up
 		Address string `json:"address,omitempty"`
@@ -66,6 +74,10 @@ func (g *Gateway) serveHealth(w http.ResponseWriter, r *http.Request, id Identit
 		h.HomeAssistant.LastMessage = &t
 		h.HomeAssistant.AgeSeconds = int(time.Since(t).Seconds())
 		h.HomeAssistant.Reachable = time.Since(t) < 2*time.Minute
+	}
+	if !g.appSeen.IsZero() {
+		t := g.appSeen
+		h.Apps.LastContact, h.Apps.AgeSeconds, h.Apps.Who = &t, int(time.Since(t).Seconds()), g.appWho
 	}
 	h.Tailnet.State, h.Tailnet.Address, h.Tailnet.Owner = g.setup.State, g.setup.Address, g.Owner
 	h.Mapping.Exists, h.Mapping.Custom, h.Mapping.Rooms, h.Mapping.Stale = !g.mappingAt.IsZero(), g.mapping.Custom(), g.rooms, len(g.stale)

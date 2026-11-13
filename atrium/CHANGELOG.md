@@ -3,6 +3,16 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.39
+
+- Health says when an app last got through. `/atrium/health` has `apps`: the time of the last request from an app
+  (a phone, a wall panel; not the Home Assistant panel), how long ago that was, and whose it was. An app that
+  cannot reach the add-on cannot report that it failed, so a long gap here is the sign: a phone that could not
+  reach Atrium for two days showed nothing in the add-on's log.
+- With the iPhone app's next build, an app that cannot connect says why ("Tailscale is off on this phone", "the
+  Atrium add-on is not answering") on Home and in the reports it sends once it is back, and tries again as soon as
+  the phone's network changes.
+
 ## 0.9.38
 
 - The clean stop is clean. In 0.9.37, closing Tailscale on the way out made the add-on exit with an error (code 1)

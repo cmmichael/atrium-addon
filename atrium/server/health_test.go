@@ -36,6 +36,10 @@ func TestHealthSaysHowTheHouseIsDoing(t *testing.T) {
 	if tn := body["tailnet"].(map[string]any); tn["state"] != "up" || tn["owner"] != "owner@example.com" {
 		t.Errorf("tailnet: %v", tn)
 	}
+	// The health request itself came from an app: it is the last contact.
+	if a := body["apps"].(map[string]any); a["lastContact"] == nil || a["who"] == "" {
+		t.Errorf("apps: %v", a)
+	}
 	// The collector: a room's control reported unavailable is listed once; others are not.
 	h := house.House{Rooms: []house.Room{{ID: "den", Entities: []string{"light.a", "light.b", "light.a"}, Temperature: "sensor.t"}}}
 	states := map[string]*house.State{"light.a": {State: "unavailable"}, "light.b": {State: "on"}, "sensor.t": {State: "unavailable"}}
