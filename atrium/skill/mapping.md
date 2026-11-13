@@ -182,7 +182,7 @@ and voice assistants. The same goes for a key an integration lacks: a script tha
 
 ## Version 3: the house beyond rooms
 
-`version: 3` adds sections for what a house has besides rooms, scenes and the five screens: water, air, appliances,
+`version: 3` adds sections for what a house has besides rooms, scenes and the five screens: water, gas, air, appliances,
 thermostats that serve several rooms, what "needs attention" counts, seasonal lights, vehicles, a pool, the day's
 calendars, drives, reminders and schedules, and panels for the one-offs. Every section is optional (absent = that
 screen or card is not shown), every value is an entity id unless said otherwise, every action takes the forms under
@@ -193,7 +193,7 @@ with version 3 sections must say `version: 3`, or it is refused with that advice
 with every version, a key the contract does not have refuses the whole file (the parser is strict), so a typo is
 caught at once rather than silently ignored.
 
-Where each lands in the apps: `water` is a card on Energy, and its valve sits under Security's hazards; `tariff` is a card on Energy (the apps do the tier arithmetic from the net meter: the bill so far, the tier and the kWh to the next, the cost per hour of what runs now from load less solar at the tier's rate with tax, and the bill the period is heading for at this pace); `air` is a
+Where each lands in the apps: `water` is a card on Energy, and its valve sits under Security's hazards; `gas` is a line and a chart in The week (add-on 0.9.36 and later; an older add-on refuses a file with `gas` or `water.statistic`, so update the add-on first); `tariff` is a card on Energy (the apps do the tier arithmetic from the net meter: the bill so far, the tier and the kWh to the next, the cost per hour of what runs now from load less solar at the tier's rate with tax, and the bill the period is heading for at this pace); `air` is a
 readout in each room's header and a Home card while any band is poor; `thermostats` extend the rooms; `attention`
 feeds the alerts; `appliances` are tiles in their rooms and a notice when one finishes; `seasonal` is a Home chip
 inside its dates; `vehicles` is a tab of its own; `pool` a card on Energy (or Home, when there is no Energy tab);
@@ -225,6 +225,11 @@ energy:
     valve: { entity: valve.main_water, openOnly: true }   # valve or switch; openOnly: the apps may open it (two taps) and never close it
     mode: select.water_mode         # home / away / sleep: a select or input_select is settable, a sensor is shown
     alerts: [binary_sensor.leak_laundry, binary_sensor.meter_high_flow]   # flagged on Home while on: a moisture sensor as a water leak (critical), any other under its own name (a warning)
+    statistic: water_company:consumption   # the long-term statistic The week reads the days from instead of `today`: a meter with a state_class, or a statistic an integration imports (source:name, as Home Assistant's Energy dashboard lists it). For a `today` that has no statistics, or whose figures arrive days late and so land on the wrong days
+  gas:                              # The week: the gas the house used and what it came to
+    today: sensor.gas_today         # the day's gas, in the meter's own unit (kWh, m³): one Home Assistant keeps long-term statistics for
+    cost: sensor.gas_cost_today     # optional: the day's cost, where the supplier's integration has one (a sensor, or an imported statistic); its unit is the currency
+    statistic: gas_supplier:consumption   # optional, as for water: another series for the days; `today` may then be left out
   tariff:                           # a card on Energy: the bill so far, the tier, the cost per hour now
     net: sensor.bill_net_energy     # kWh since the period began: a utility_meter on what the grid delivered (less what it received, where the utility nets them); its last_reset says when the period began
     period_days: 60                 # the bill's length; default 30
@@ -367,7 +372,9 @@ The add-on emits each section under the same key in `house.json`, resolved: enti
 or Home Assistant, units from the sensors, actions as `{domain, service, entity, data}`, `openOnly` and `readOnly`
 as flags on the items they name. Items Home Assistant does not have are dropped and reported, as everywhere.
 `water` also fills `energy.waterFlow` and `energy.waterToday` so an older app keeps its two readouts, and
-`energy.waterDate` from `date`; the valve appears again under `security.valves` with its flag (`water.modeSettable` says whether the mode is a select); `climate.thermostats` adds the thermostat to every room
+`energy.waterDate` from `date`; `water.statistic` and `gas` are read by the add-on for The week (`GET /atrium/digest`:
+`gas` with its total, unit, cost and currency, `days[].gas`, and `days` on `water` and `gas` for how many of the
+seven days have a figure); the valve appears again under `security.valves` with its flag (`water.modeSettable` says whether the mode is a select); `climate.thermostats` adds the thermostat to every room
 it serves (`rooms[].thermostat` when the room has none of its own) and carries `action: setpoint` through: the
 apps then take Home Assistant's `hvac_action` at its word only while the setpoint agrees, so a floor that says
 "heating" whenever its program is on shows as heating while its target is above the current temperature and as
@@ -423,7 +430,13 @@ camera's or doorbell's own speaker. Music Assistant's copies of players that alr
   day's total days after the day; the apps caption such a figure "today" only while the sensor changed today,
   and with the day it covers once the file names a timestamp or date sensor from the same integration as
   `water.date` (often called "last data date" or "reading date"). Write that key whenever the integration has
-  one: it is what makes a late figure honest.
+  one: it is what makes a late figure honest. Such a sensor usually has no long-term statistics, and a meter
+  total from the same integration has them on the day the figure arrived, not the day the water ran; the
+  integration's imported statistic (in `recorder/list_statistic_ids` with a source other than `recorder`, the one
+  the Energy dashboard shows) is dated right, so name it as `water.statistic` and The week reads that. Its last
+  days are still to come when the week is written: the line then says how many days it covers and compares
+  them with the same days of the week before. Gas is never guessed: name `gas.today` (and `gas.cost`) from the
+  supplier's integration, the pair Home Assistant's Energy dashboard uses when it has gas.
 - **music**: media players with device class `speaker`, less the exclusions above. When Music Assistant is there,
   each speaker is paired with its Music Assistant player by device name, for search, favourites, play and moving
   music between rooms.

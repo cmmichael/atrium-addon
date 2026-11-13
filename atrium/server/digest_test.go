@@ -204,6 +204,130 @@ func TestWords(t *testing.T) {
 	}
 }
 
+// Gas from the supplier's sensors, and water from a statistic that arrives days late: the last two days of the
+// week have no water yet, so the week is five days and is compared with the same five days of the week before.
+func TestGasAndLateWater(t *testing.T) {
+	loc, err := time.LoadLocation("Europe/London")
+	if err != nil {
+		t.Skip(err)
+	}
+	now := time.Date(2026, 11, 12, 21, 0, 0, 0, loc)
+	b := midnights(now, loc, 14)
+	ms := func(i int) float64 { return float64(b[i].UnixMilli()) }
+	var gas, cost, water []statRow
+	for i := 0; i < 14; i++ {
+		g := 80.0
+		if i < 7 {
+			g = 50
+		}
+		gas = append(gas, statRow{Start: ms(i), Change: f(g), State: f(g)})
+		cost = append(cost, statRow{Start: ms(i), Change: f(g * 0.08)})
+		if i < 12 {
+			w := 300.0
+			if i < 7 {
+				w = 600
+			}
+			water = append(water, statRow{Start: ms(i), Change: f(w), State: f(0)})
+		}
+	}
+	in := digestInput{
+		House: house.House{Energy: house.Energy{
+			WaterToday: "sensor.water_latest",
+			Water:      &house.Water{Today: "sensor.water_latest", Statistic: "utility:water_used"},
+			Gas:        &house.Gas{Today: "sensor.gas_today", Cost: "sensor.gas_cost"},
+		}},
+		States: map[string]*house.State{
+			"sensor.water_latest": {Attributes: map[string]any{"unit_of_measurement": "gal"}}, // not the statistic's unit
+			"sensor.gas_today":    {Attributes: map[string]any{"unit_of_measurement": "kWh"}},
+			"sensor.gas_cost":     {Attributes: map[string]any{"unit_of_measurement": "GBP"}},
+		},
+		Units:  map[string]string{"utility:water_used": "L"},
+		Money:  "EUR",
+		Bounds: b,
+		Day:    map[string][]statRow{"sensor.gas_today": gas, "sensor.gas_cost": cost, "utility:water_used": water},
+	}
+	r := buildDigest(in, now)
+	if r.Gas == nil || r.Gas.Total != 560 || r.Gas.Before == nil || *r.Gas.Before != 350 || r.Gas.Days != 7 || r.Gas.Unit != "kWh" || r.Gas.Cost == nil || !near(*r.Gas.Cost, 44.8) || r.Gas.Currency != "£" {
+		t.Errorf("gas %+v", r.Gas)
+	}
+	if r.Water == nil || r.Water.Total != 1500 || r.Water.Days != 5 || r.Water.Before == nil || *r.Water.Before != 3000 || r.Water.Unit != "L" {
+		t.Errorf("water %+v", r.Water)
+	}
+	if r.Days[0].Gas == nil || *r.Days[0].Gas != 80 || r.Days[4].Water == nil || *r.Days[4].Water != 300 || r.Days[5].Water != nil {
+		t.Errorf("days %+v", r.Days)
+	}
+	want := []string{
+		"Gas: 560 kWh, 60% more than the week before",
+		"Gas came to about £45",
+		"Water: 1,500 L over 5 days, 50% less than those days the week before",
+	}
+	var got []string
+	for _, l := range r.Lines {
+		got = append(got, l.Text)
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("lines:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	// A statistic named without a today sensor still reads, in the recorder's unit; a cost with no unit of its
+	// own is written in Home Assistant's currency.
+	in.House.Energy.Gas = &house.Gas{Statistic: "supplier:gas_used", Cost: "supplier:gas_cost"}
+	in.Units["supplier:gas_used"] = "m³"
+	in.Day["supplier:gas_used"], in.Day["supplier:gas_cost"] = gas[:9], cost[:9]
+	r = buildDigest(in, now)
+	if r.Gas == nil || r.Gas.Unit != "m³" || r.Gas.Days != 2 || r.Gas.Currency != "€" || r.Lines[0].Text != "Gas: 160 m³ over 2 days, 60% more than those days the week before" {
+		t.Errorf("gas from a statistic: %+v %v", r.Gas, r.Lines)
+	}
+	// The cost is for the days the gas covers: two days of a cost series that has all seven, not the week's.
+	in.Day["supplier:gas_cost"] = cost
+	if r = buildDigest(in, now); r.Gas == nil || r.Gas.Cost == nil || !near(*r.Gas.Cost, 2*6.4) {
+		t.Errorf("the cost of two days of gas: %+v", r.Gas)
+	}
+	// A cost that lacks one of those days is left out rather than understated.
+	in.Day["supplier:gas_cost"] = cost[:8]
+	if r = buildDigest(in, now); r.Gas == nil || r.Gas.Cost != nil || len(r.Lines) == 0 || strings.Contains(r.Lines[1].Text, "came to") {
+		t.Errorf("a cost short of a day: %+v %v", r.Gas, r.Lines)
+	}
+	// A statistic the recorder has no unit for is not given another sensor's: the figure goes without.
+	in.House.Energy.Gas.Today = "sensor.gas_today"
+	delete(in.Units, "supplier:gas_used")
+	if r = buildDigest(in, now); r.Gas == nil || r.Gas.Unit != "" || r.Lines[0].Text != "Gas: 160 over 2 days, 60% more than those days the week before" {
+		t.Errorf("gas with no unit: %+v %v", r.Gas, r.Lines)
+	}
+	// A statistic with nothing in the week (an import that stopped) gives way to today's sensor.
+	in.Day["supplier:gas_used"] = gas[:7]
+	if r = buildDigest(in, now); r.Gas == nil || r.Gas.Total != 560 || r.Gas.Days != 7 || r.Gas.Unit != "kWh" {
+		t.Errorf("gas from today's sensor: %+v", r.Gas)
+	}
+	// A week whose days the week before lacks is not compared at all.
+	in.Day["utility:water_used"] = water[8:]
+	if r = buildDigest(in, now); r.Water == nil || r.Water.Days != 4 || r.Water.Before != nil || !strings.HasSuffix(r.Lines[len(r.Lines)-1].Text, "Water: 1,200 L over 4 days") {
+		t.Errorf("water with no week before: %+v %v", r.Water, r.Lines)
+	}
+}
+
+func TestMeteredWords(t *testing.T) {
+	for _, c := range []struct {
+		total  float64
+		unit   string
+		days   int
+		before *float64
+		want   string
+	}{
+		{660, "gal", 7, f(770), "660 gal, 14% less than the week before"},
+		{660, "gal", 7, nil, "660 gal"},
+		{660, "gal", 6, f(660), "660 gal over 6 days, about the same as those days the week before"},
+		{300, "L", 1, f(300), "300 L in one day, about the same as that day the week before"},
+		{55.14, "m³", 4, nil, "55.1 m³ over 4 days"},
+	} {
+		if got := metered(c.total, c.unit, c.days, c.before); got != c.want {
+			t.Errorf("%q, want %q", got, c.want)
+		}
+	}
+	if currencyOf("GBP", "USD") != "£" || currencyOf("", "EUR") != "€" || currencyOf("kr", "USD") != "kr" {
+		t.Error("currencyOf")
+	}
+}
+
 // A whole house over two weeks, as the recorder answers.
 func TestBuildDigest(t *testing.T) {
 	loc := losAngeles(t)
@@ -268,15 +392,15 @@ func TestBuildDigest(t *testing.T) {
 	if !near(*r.Days[2].Cost, (2*0.30+8*0.50)*1.1) || !near(*r.Days[0].Used, 30) || !near(*r.Days[0].Net, 10) {
 		t.Errorf("the day the tier was crossed: %+v", r.Days[2])
 	}
-	// The week has six days of water, the one before seven: compared all the same.
-	if r.Water == nil || r.Water.Total != 660 || r.Water.Before == nil || *r.Water.Before != 770 || r.Days[2].Water != nil {
+	// The week has six days of water, the one before seven: compared with the same six days, not all seven.
+	if r.Water == nil || r.Water.Total != 660 || r.Water.Days != 6 || r.Water.Before == nil || *r.Water.Before != 660 || r.Days[2].Water != nil {
 		t.Errorf("water %+v", r.Water)
 	}
 	want := []string{
 		"The house used 210 kWh, 12% less than the week before",
 		"Solar made 140 kWh, about the same as the week before",
 		"Electricity came to about $38",
-		"Water: 660 gal, 14% less than the week before",
+		"Water: 660 gal over 6 days, about the same as those days the week before",
 		"Bedroom: CO₂ ran high on 2 nights, up to 1,649 ppm",
 		"Front door stayed unlocked on one night",
 		"cover.garage stood open on 2 nights",

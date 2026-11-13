@@ -32,6 +32,18 @@ type WaterMapping struct {
 	Valve       *ValveMapping `yaml:"valve,omitempty"`
 	Mode        string        `yaml:"mode,omitempty"`
 	Alerts      []string      `yaml:"alerts,omitempty"`
+	// The long-term statistic the week at home reads the days from, when `today` has none or dates them wrong: a
+	// sensor with a state_class, or a statistic an integration imports (thames_water:thameswater_consumption).
+	Statistic string `yaml:"statistic,omitempty"`
+}
+
+// GasMapping is the gas meter, for the week at home: the day's gas (kWh, m³ or whatever the meter counts in) and,
+// where the supplier's integration has one, the day's cost. Both are read from the recorder's long-term
+// statistics. `statistic` names another series for the days, as for water.
+type GasMapping struct {
+	Today     string `yaml:"today,omitempty"`
+	Cost      string `yaml:"cost,omitempty"` // a sensor, or an imported statistic (source:name)
+	Statistic string `yaml:"statistic,omitempty"`
 }
 
 type ValveMapping struct {
@@ -256,6 +268,15 @@ type Water struct {
 	Mode         string   `json:"mode,omitempty"`
 	ModeSettable bool     `json:"modeSettable,omitempty"` // a select: the apps may change it
 	Alerts       []string `json:"alerts,omitempty"`
+	// The statistic the week at home reads instead of today's: an entity or an imported statistic (source:name).
+	Statistic string `json:"statistic,omitempty"`
+}
+
+// Gas is the gas meter the week at home reads: the day's gas and its cost, or another statistic for the days.
+type Gas struct {
+	Today     string `json:"today,omitempty"`
+	Cost      string `json:"cost,omitempty"`
+	Statistic string `json:"statistic,omitempty"`
 }
 
 type Valve struct {
@@ -446,6 +467,20 @@ func renderV3(m Mapping, h *House, d Dump, exists func(where, id string) string,
 		problem("%s: no room %s", where, id)
 		return ""
 	}
+	// A statistic the week at home reads: an entity's, or one an integration imports (source:name, with no entity
+	// behind it). When the recorder's list was not asked for, an imported one is taken at its word.
+	statistic := func(where, id string) string {
+		switch {
+		case id == "":
+			return ""
+		case d.Statistics == nil && !strings.Contains(id, ":"):
+			return exists(where, id)
+		case d.Statistics == nil || d.Statistics[id]:
+			return id
+		}
+		problem("%s: Home Assistant keeps no long-term statistics called %s, so the week at home cannot read it", where, id)
+		return ""
+	}
 	each := func(where string, ids []string) []string {
 		out := []string{}
 		for _, id := range ids {
@@ -524,6 +559,21 @@ func renderV3(m Mapping, h *House, d Dump, exists func(where, id string) string,
 			h.Energy.WaterToday = w.Today
 		}
 		h.Energy.WaterDate = w.Date
+		w.Statistic = statistic("water", wm.Statistic)
+	}
+
+	if m.Energy != nil && m.Energy.Gas != nil {
+		gm := m.Energy.Gas
+		cost := exists // the day's cost: a sensor, or a statistic the supplier's integration imports
+		if strings.Contains(gm.Cost, ":") {
+			cost = statistic
+		}
+		g := &Gas{Today: exists("gas", gm.Today), Cost: cost("gas", gm.Cost), Statistic: statistic("gas", gm.Statistic)}
+		if g.Today != "" || g.Statistic != "" {
+			h.Energy.Gas = g
+		} else if gm.Today == "" && gm.Statistic == "" {
+			problem("gas: name today (the day's gas) or statistic, the series the week at home reads")
+		}
 	}
 
 	if m.Energy != nil && m.Energy.Tariff != nil {

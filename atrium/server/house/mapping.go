@@ -46,7 +46,7 @@ type Mapping struct {
 // v3 says whether the file uses any version 3 section.
 func (m Mapping) v3() bool {
 	return m.Climate != nil || m.Appliances != nil || m.Seasonal != nil || m.Vehicles != nil || m.Pool != nil || m.Day != nil || m.Panels != nil ||
-		m.Routines != nil || m.Home.Attention != nil || (m.Energy != nil && (m.Energy.Water != nil || m.Energy.Tariff != nil))
+		m.Routines != nil || m.Home.Attention != nil || (m.Energy != nil && (m.Energy.Water != nil || m.Energy.Gas != nil || m.Energy.Tariff != nil))
 }
 
 // WidgetMapping is one Home Screen widget in the file: a name and the items it shows, in order. The phone fits
@@ -399,6 +399,8 @@ type EnergyMapping struct {
 	WaterToday   string   `yaml:"water_today,omitempty"`
 	// Version 3: the water card, with the valve.
 	Water *WaterMapping `yaml:"water,omitempty"`
+	// Version 3: the gas meter, for the week at home.
+	Gas *GasMapping `yaml:"gas,omitempty"`
 	// Version 3: the electricity tariff, for the bill so far and the cost of running something now.
 	Tariff *TariffMapping `yaml:"tariff,omitempty"`
 }
@@ -569,7 +571,7 @@ func ParseMapping(data []byte) (Mapping, error) {
 		return m, fmt.Errorf("version %d is not known (this add-on knows versions 1, 2 and 3)", m.Version)
 	}
 	if m.Version < 3 && m.v3() {
-		return m, fmt.Errorf("the file has version 3 sections (climate, appliances, vehicles, pool, day, panels, seasonal, attention, water, tariff) but says version %d: write version: 3", m.Version)
+		return m, fmt.Errorf("the file has version 3 sections (climate, appliances, vehicles, pool, day, panels, seasonal, attention, water, gas, tariff) but says version %d: write version: 3", m.Version)
 	}
 	seen := map[string]bool{}
 	for i, r := range m.Rooms {

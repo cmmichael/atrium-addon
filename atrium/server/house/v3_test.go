@@ -312,3 +312,52 @@ func TestMetersWithoutStatisticsAreReported(t *testing.T) {
 		t.Errorf("problems %v", problems)
 	}
 }
+
+// Gas, and water whose days come from a statistic of their own: an imported statistic has no entity, so it is
+// checked against the recorder's list, and the sensor it stands in for needs no statistics.
+func TestGasAndStatisticsOfTheirOwn(t *testing.T) {
+	d := smallHome()
+	for id, unit := range map[string]string{"sensor.water_latest": "L", "sensor.gas_today": "kWh", "sensor.gas_cost": "GBP"} {
+		d.Entities = append(d.Entities, map[string]any{"entity_id": id, "platform": "demo"})
+		d.States[id] = &State{State: "3", Attributes: map[string]any{"unit_of_measurement": unit}}
+	}
+	file := "version: 3\nenergy:\n  water: {today: sensor.water_latest, statistic: \"utility:water_used\"}\n  gas: {today: sensor.gas_today, cost: sensor.gas_cost}\n"
+	m, err := ParseMapping([]byte(file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, problems := Render(m, d, Config{}) // the recorder's list not asked: an imported statistic is taken at its word
+	if h.Energy.Water == nil || h.Energy.Water.Statistic != "utility:water_used" || h.Energy.Gas == nil || h.Energy.Gas.Today != "sensor.gas_today" || h.Energy.Gas.Cost != "sensor.gas_cost" || len(problems) != 0 {
+		t.Fatalf("water %+v gas %+v problems %v", h.Energy.Water, h.Energy.Gas, problems)
+	}
+	// sensor.water_latest has no statistics and needs none; the gas cost has none and is told.
+	d.Statistics = map[string]bool{"utility:water_used": true, "sensor.gas_today": true}
+	if _, problems = Render(m, d, Config{}); len(problems) != 1 || !strings.Contains(problems[0], "sensor.gas_cost") {
+		t.Errorf("problems %v", problems)
+	}
+	// A statistic the recorder does not have is dropped and told; the week then reads today's sensor, which has none.
+	d.Statistics = map[string]bool{"sensor.gas_today": true, "sensor.gas_cost": true}
+	h, problems = Render(m, d, Config{})
+	if h.Energy.Water.Statistic != "" || len(problems) != 2 || !strings.Contains(strings.Join(problems, "\n"), "utility:water_used") || !strings.Contains(strings.Join(problems, "\n"), "sensor.water_latest") {
+		t.Errorf("statistic %q, problems %v", h.Energy.Water.Statistic, problems)
+	}
+	// The cost may be an imported statistic too: checked against the recorder's list, not the entities.
+	m, _ = ParseMapping([]byte("version: 3\nenergy:\n  gas: {statistic: \"supplier:gas_used\", cost: \"supplier:gas_cost\"}\n"))
+	d.Statistics = map[string]bool{"supplier:gas_used": true, "supplier:gas_cost": true}
+	if h, problems = Render(m, d, Config{}); h.Energy.Gas == nil || h.Energy.Gas.Statistic != "supplier:gas_used" || h.Energy.Gas.Cost != "supplier:gas_cost" || len(problems) != 0 {
+		t.Errorf("an imported cost: %+v %v", h.Energy.Gas, problems)
+	}
+	delete(d.Statistics, "supplier:gas_cost")
+	if h, problems = Render(m, d, Config{}); h.Energy.Gas == nil || h.Energy.Gas.Cost != "" || len(problems) != 1 || !strings.Contains(problems[0], "supplier:gas_cost") {
+		t.Errorf("an imported cost the recorder lacks: %+v %v", h.Energy.Gas, problems)
+	}
+	d.Statistics = map[string]bool{"sensor.gas_today": true, "sensor.gas_cost": true}
+	// Gas is a version 3 section, and names a meter.
+	if _, err := ParseMapping([]byte("version: 2\nenergy:\n  gas: {today: sensor.gas_today}\n")); err == nil {
+		t.Error("gas in a version 2 file was let through")
+	}
+	m, _ = ParseMapping([]byte("version: 3\nenergy:\n  gas: {cost: sensor.gas_cost}\n"))
+	if h, problems = Render(m, d, Config{}); h.Energy.Gas != nil || len(problems) != 1 || !strings.Contains(problems[0], "gas:") {
+		t.Errorf("gas with no meter: %+v %v", h.Energy.Gas, problems)
+	}
+}

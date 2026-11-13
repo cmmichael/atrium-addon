@@ -119,7 +119,7 @@ var mcpTools = []map[string]any{
 		"inputSchema": map[string]any{"type": "object", "required": []string{"yaml"}, "properties": map[string]any{
 			"yaml": map[string]any{"type": "string", "description": "the whole file"},
 		}}},
-	{"name": "atrium_digest", "description": "The house's last seven whole days as JSON: lines in plain words, then the figures behind them (energy used and made, what the electricity came to under the layout's tariff, water, nights a room's CO2 ran high, nights a lock stayed unlocked or a door stood open, doorbell rings), each present when the layout names the entity and the recorder has its history.",
+	{"name": "atrium_digest", "description": "The house's last seven whole days as JSON: lines in plain words, then the figures behind them (energy used and made, what the electricity came to under the layout's tariff, gas and what it came to, water, nights a room's CO2 ran high, nights a lock stayed unlocked or a door stood open, doorbell rings), each present when the layout names the entity and the recorder has its history.",
 		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 	{"name": "atrium_layout_status", "description": "Whether there is a layout file, whether it fills any custom screen, how many rooms the house has as drawn, the file's error if it was refused, and what the last render could not use.",
 		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},

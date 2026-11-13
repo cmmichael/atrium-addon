@@ -1,10 +1,10 @@
 package main
 
 // The week: the last seven whole days of the house in a few lines, from what Home Assistant already recorded.
-// What the house used and made, what the electricity came to under the layout's tariff, the water, the nights a
-// room's CO2 ran past the "poor" band, the nights a lock stayed unlocked or a door stood open, how often the
-// doorbell rang. Nothing
-// here is configured: each line appears when the layout names the entity and the recorder has its figures.
+// What the house used and made, what the electricity came to under the layout's tariff, the gas and what it came
+// to, the water, the nights a room's CO2 ran past the "poor" band, the nights a lock stayed unlocked or a door
+// stood open, how often the doorbell rang. Nothing here is configured: each line appears when the layout names
+// the entity (or the statistic) and the recorder has its figures.
 //
 // Totals come from the recorder's long-term statistics (kept for good, and cut into days by Home Assistant in
 // the house's own time zone); locks and rings from its history, which it keeps for ten days unless told
@@ -24,7 +24,7 @@ import (
 )
 
 type digestLine struct {
-	Kind string `json:"kind"` // energy, solar, cost, water, air, lock, entry, ring
+	Kind string `json:"kind"` // energy, solar, cost, gas, water, air, lock, entry, ring
 	Text string `json:"text"`
 	Warn bool   `json:"warn,omitempty"` // worth a look: a night of poor air, a lock left open
 }
@@ -37,6 +37,7 @@ type digestDay struct {
 	Net   *float64 `json:"net,omitempty"`   // kWh taken from the grid, less what went back
 	Cost  *float64 `json:"cost,omitempty"`  // the energy charge with the tax
 	Water *float64 `json:"water,omitempty"`
+	Gas   *float64 `json:"gas,omitempty"` // in the meter's own unit: kWh, m³
 }
 
 type digestEnergy struct {
@@ -49,10 +50,24 @@ type digestEnergy struct {
 	Currency    string   `json:"currency,omitempty"`
 }
 
+// digestWater is the week's water. A meter whose figures arrive days late (a water company's) has fewer than
+// seven days by the time the week is written: Days says how many. Before is always the same days of the week
+// before (the whole week when Days is seven), absent unless that week has every one of them.
 type digestWater struct {
 	Total  float64  `json:"total"`
 	Before *float64 `json:"before,omitempty"`
 	Unit   string   `json:"unit,omitempty"`
+	Days   int      `json:"days,omitempty"` // the days with a figure, of seven
+}
+
+// digestGas is the week's gas, in the meter's own unit, and what it came to where the layout names a cost.
+type digestGas struct {
+	Total    float64  `json:"total"`
+	Before   *float64 `json:"before,omitempty"`
+	Unit     string   `json:"unit,omitempty"`
+	Days     int      `json:"days,omitempty"`
+	Cost     *float64 `json:"cost,omitempty"` // over the same days as Total; absent when the cost lacks one of them
+	Currency string   `json:"currency,omitempty"`
 }
 
 type digestAir struct {
@@ -94,6 +109,7 @@ type digestReport struct {
 	Lines   []digestLine  `json:"lines"`
 	Days    []digestDay   `json:"days"`
 	Energy  *digestEnergy `json:"energy,omitempty"`
+	Gas     *digestGas    `json:"gas,omitempty"`
 	Water   *digestWater  `json:"water,omitempty"`
 	Air     []digestAir   `json:"air,omitempty"`
 	Locks   []digestLock  `json:"locks,omitempty"`
@@ -401,18 +417,45 @@ func money(v float64, currency string) string {
 }
 
 // against compares with the week before, when there is one.
-func against(now float64, before *float64) string {
+func against(now float64, before *float64) string { return againstThe("the week before", now, before) }
+
+func againstThe(what string, now float64, before *float64) string {
 	if before == nil || *before <= 0 {
 		return ""
 	}
 	p := (now - *before) / *before * 100
 	switch {
 	case math.Abs(p) < 3:
-		return ", about the same as the week before"
+		return ", about the same as " + what
 	case p > 0:
-		return fmt.Sprintf(", %.0f%% more than the week before", p)
+		return fmt.Sprintf(", %.0f%% more than %s", p, what)
 	}
-	return fmt.Sprintf(", %.0f%% less than the week before", -p)
+	return fmt.Sprintf(", %.0f%% less than %s", -p, what)
+}
+
+// metered words a meter's week: the quantity, how many days it covers when the week is not whole, and how it
+// compares. before is the same days of the week before, so a short week reads against those days.
+func metered(total float64, unit string, days int, before *float64) string {
+	s := strings.TrimSpace(amount(total) + " " + unit)
+	switch {
+	case days <= 0 || days >= digestDays:
+		return s + against(total, before)
+	case days == 1:
+		return s + " in one day" + againstThe("that day the week before", total, before)
+	}
+	return s + fmt.Sprintf(" over %d days", days) + againstThe("those days the week before", total, before)
+}
+
+// currencyOf is the sign a cost is written with: its sensor's unit, a currency code (GBP) or already a sign, else
+// Home Assistant's own currency.
+func currencyOf(unit, code string) string {
+	if unit == "" {
+		return house.CurrencySign(code)
+	}
+	if len(unit) == 3 && strings.Trim(unit, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") == "" {
+		return house.CurrencySign(unit)
+	}
+	return unit
 }
 
 func nightsWords(n int) string {
@@ -445,8 +488,14 @@ func digestLines(r digestReport) []digestLine {
 			add("cost", false, "Electricity came to about %s", money(*e.Cost, e.Currency))
 		}
 	}
+	if g := r.Gas; g != nil {
+		add("gas", false, "Gas: %s", metered(g.Total, g.Unit, g.Days, g.Before))
+		if g.Cost != nil {
+			add("gas", false, "Gas came to about %s", money(*g.Cost, g.Currency))
+		}
+	}
 	if w := r.Water; w != nil {
-		add("water", false, "Water: %s%s", strings.TrimSpace(amount(w.Total)+" "+w.Unit), against(w.Total, w.Before))
+		add("water", false, "Water: %s", metered(w.Total, w.Unit, w.Days, w.Before))
 	}
 	high := 0
 	for _, a := range r.Air {
@@ -508,6 +557,8 @@ func digestLines(r digestReport) []digestLine {
 type digestInput struct {
 	House   house.House
 	States  map[string]*house.State
+	Units   map[string]string    // the recorder's unit for a statistic with no entity behind it (an imported one)
+	Money   string               // Home Assistant's currency ("GBP"), for a cost whose sensor names none
 	Bounds  []time.Time          // 2×digestDays+1 midnights: the week before, then the week
 	Day     map[string][]statRow // day statistics over both weeks
 	Hour    map[string][]statRow // hour statistics over the week
@@ -534,10 +585,11 @@ func buildDigest(in digestInput, now time.Time) digestReport {
 	}
 	unit := func(id string) string {
 		if st := in.States[id]; st != nil {
-			u, _ := st.Attributes["unit_of_measurement"].(string)
-			return u
+			if u, _ := st.Attributes["unit_of_measurement"].(string); u != "" {
+				return u
+			}
 		}
-		return ""
+		return in.Units[id]
 	}
 	kWh := func(id string) float64 {
 		switch unit(id) {
@@ -563,6 +615,42 @@ func buildDigest(in digestInput, now time.Time) digestReport {
 			return t, nil
 		}
 		return t, total(before, digestDays-1)
+	}
+
+	// A meter's week: its total, the days it has, and the same days of the week before (nothing unless that week
+	// has every one of them). A week short of days (figures that arrive late, a meter that was away) is so
+	// compared like for like, never with a longer week.
+	meter := func(now, before []*float64) (sum float64, days int, was *float64) {
+		same, all := 0.0, true
+		for i, v := range now {
+			if v == nil {
+				continue
+			}
+			sum += *v
+			days++
+			if i < len(before) && before[i] != nil {
+				same += *before[i]
+			} else {
+				all = false
+			}
+		}
+		if days > 0 && all {
+			was = &same
+		}
+		return
+	}
+	// The series a meter's days are read from: the first of these with a figure in the week. The statistic the
+	// layout names comes first; today's sensor stands in while that one has nothing (an import that stopped).
+	series := func(ids ...string) (id string, now, before []*float64) {
+		for _, id := range ids {
+			now, before := figures(id, true, 1)
+			for _, v := range now {
+				if v != nil {
+					return id, now, before
+				}
+			}
+		}
+		return "", nil, nil
 	}
 
 	// Further meters (a pool on its own tap) add to the main one's days; a day counts once the main meter has it.
@@ -624,14 +712,37 @@ func buildDigest(in digestInput, now time.Time) digestReport {
 		r.Energy = &e
 	}
 
-	water := h.Energy.WaterToday
-	if h.Energy.Water != nil && h.Energy.Water.Today != "" {
-		water = h.Energy.Water.Today
-	}
-	if days, before := figures(water, true, 1); days != nil {
-		if t, b := compare(days, before); t != nil {
-			r.Water = &digestWater{Total: *t, Before: b, Unit: unit(water)}
+	// The unit is the series' own (the recorder's, for an imported statistic), never another sensor's.
+	if g := h.Energy.Gas; g != nil {
+		if id, days, before := series(g.Statistic, g.Today); id != "" {
+			t, n, b := meter(days, before)
+			r.Gas = &digestGas{Total: t, Before: b, Unit: unit(id), Days: n}
+			for i, v := range days {
+				r.Days[i].Gas = v
+			}
+			// What it came to, over the days the gas itself covers and only when the cost has them all.
+			if cost, _ := figures(g.Cost, true, 1); cost != nil {
+				sum, covered := 0.0, 0
+				for i, v := range cost {
+					if v != nil && days[i] != nil {
+						sum += *v
+						covered++
+					}
+				}
+				if covered == n {
+					r.Gas.Cost, r.Gas.Currency = &sum, currencyOf(unit(g.Cost), in.Money)
+				}
+			}
 		}
+	}
+
+	waters := []string{h.Energy.WaterToday}
+	if w := h.Energy.Water; w != nil {
+		waters = []string{w.Statistic, w.Today, h.Energy.WaterToday}
+	}
+	if id, days, before := series(waters...); id != "" {
+		t, n, b := meter(days, before)
+		r.Water = &digestWater{Total: t, Before: b, Unit: unit(id), Days: n}
 		for i, v := range days {
 			r.Days[i].Water = v
 		}
@@ -709,7 +820,7 @@ func (g *Gateway) digest(ctx context.Context) (digestReport, error) {
 
 // digestInput asks Home Assistant: the zone and the states, then the recorder for what the layout names.
 func (g *Gateway) digestInput(ctx context.Context, now time.Time) (digestInput, error) {
-	in := digestInput{States: map[string]*house.State{}, Day: map[string][]statRow{}, Hour: map[string][]statRow{}, History: map[string][]histRow{}}
+	in := digestInput{States: map[string]*house.State{}, Units: map[string]string{}, Day: map[string][]statRow{}, Hour: map[string][]statRow{}, History: map[string][]histRow{}}
 	b, err := g.houseJSON(ctx)
 	if err != nil {
 		return in, err
@@ -732,6 +843,7 @@ func (g *Gateway) digestInput(ctx context.Context, now time.Time) (digestInput, 
 				loc = l
 			}
 		}
+		in.Money, _ = cfg["currency"].(string)
 	}
 	for _, s := range objects(first[1]) {
 		id, _ := s["entity_id"].(string)
@@ -743,7 +855,7 @@ func (g *Gateway) digestInput(ctx context.Context, now time.Time) (digestInput, 
 	stamp := func(t time.Time) string { return t.UTC().Format(time.RFC3339) }
 
 	h := in.House
-	var day, hour, hist []string
+	var day, hour, hist, named []string // named: statistics whose unit the recorder is asked for
 	put := func(list *[]string, ids ...string) {
 		for _, id := range ids {
 			if id != "" && !containsFold(*list, id) {
@@ -753,8 +865,13 @@ func (g *Gateway) digestInput(ctx context.Context, now time.Time) (digestInput, 
 	}
 	put(&day, h.Energy.UsedToday, h.Energy.SolarToday, h.Energy.WaterToday)
 	put(&day, h.Energy.UsedAlso...)
-	if h.Energy.Water != nil {
-		put(&day, h.Energy.Water.Today)
+	if w := h.Energy.Water; w != nil {
+		put(&day, w.Today, w.Statistic)
+		put(&named, w.Statistic)
+	}
+	if g := h.Energy.Gas; g != nil {
+		put(&day, g.Today, g.Statistic, g.Cost)
+		put(&named, g.Statistic, g.Cost)
 	}
 	if h.Energy.Tariff != nil {
 		put(&day, h.Energy.Tariff.Net)
@@ -786,6 +903,16 @@ func (g *Gateway) digestInput(ctx context.Context, now time.Time) (digestInput, 
 			"entity_ids": hist, "minimal_response": true, "no_attributes": true, "significant_changes_only": false})
 		into = append(into, &in.History)
 	}
+	// An imported statistic has no entity to read a unit from: the recorder knows it.
+	var meta []struct {
+		ID      string `json:"statistic_id"`
+		Display string `json:"display_unit_of_measurement"`
+		Unit    string `json:"statistics_unit_of_measurement"`
+	}
+	if len(named) > 0 {
+		reqs = append(reqs, map[string]any{"type": "recorder/get_statistics_metadata", "statistic_ids": named})
+		into = append(into, &meta)
+	}
 	if len(reqs) == 0 {
 		return in, nil
 	}
@@ -804,6 +931,9 @@ func (g *Gateway) digestInput(ctx context.Context, now time.Time) (digestInput, 
 	}
 	if failed == len(reqs) {
 		return in, fmt.Errorf("the recorder did not answer: %v", errs[0])
+	}
+	for _, m := range meta {
+		in.Units[m.ID] = firstNonEmpty(m.Display, m.Unit)
 	}
 	return in, nil
 }

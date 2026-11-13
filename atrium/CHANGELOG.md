@@ -3,6 +3,24 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.36
+
+- The week has gas. Name the supplier's daily sensors under `energy: gas:` (`today`, and `cost` where there is
+  one) and the week says how much gas the house used against the week before and what it came to, with a bar a
+  day. Before, the layout had nowhere to name a gas meter, so a house with gas only ever saw electricity.
+- The week has water for a meter whose figures arrive days late. A water company's "latest daily usage" sensor
+  has no long-term statistics, so the week had nothing to read and showed no water at all. Name the
+  integration's own statistic as `energy: water: statistic:` (for Thames Water,
+  `thames_water:thameswater_consumption`) and the week reads the days from it, each on the day the water ran. The
+  last days have not arrived when the week is written, so the line says how many it covers ("over 5 days") and
+  compares them with the same days of the week before. While the statistic has nothing in the week, the week
+  reads the `today` sensor as before.
+- Gas and water in a week that is short of a day are compared with the same days of the week before, and the line
+  says how many days it has. Before, a water meter that missed one day was set against all seven days of the week
+  before, which read as a drop of a seventh that never happened. The cost of gas covers the same days as the gas.
+- `gas` and `water: statistic:` are new keys: add-on 0.9.35 and older refuse a file that has them (on disk it
+  drops to the automatic layout), so update the add-on before adding them.
+
 ## 0.9.35
 
 - Ask the house is on Home, and a question can be spoken: tap it and it listens, shows the words as they are

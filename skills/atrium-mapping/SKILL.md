@@ -119,6 +119,11 @@ page or the app for the picture) and add overrides only where they are wrong. Ch
   statistics, and the add-on's health lists a meter without them.
   `consumers` is the "Using now" list: keep the circuits worth watching (oven, EV, pool pump), drop the rest. If
   the house has water metering, fill in `water_flow` and `water_today`; otherwise delete those lines.
+  For The week, check what Home Assistant's Energy dashboard reads (`energy/get_prefs`) and what the recorder
+  keeps (`recorder/list_statistic_ids`): a house with gas there gets `energy.gas` (`today` and `cost`, the
+  supplier's daily sensors), and a water company's sensor with no statistics gets `water.statistic`, the
+  integration's imported statistic (`source:name`), which is dated by the day the water ran. Both are version 3
+  keys and need add-on 0.9.36 or later, which an older add-on refuses whole.
 - **People.** `home.people` should be the household, not every `person.*` (guests, test users).
 - **Whole integrations.** A car, a printer, a test integration: one `hide: [integration:<platform>]` line is
   better than hiding its entities one by one.

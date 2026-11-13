@@ -151,6 +151,8 @@ type Energy struct {
 	WaterDate string `json:"waterDate,omitempty"`
 	// Version 3: the water card.
 	Water *Water `json:"water,omitempty"`
+	// Version 3: the gas meter, for the week at home.
+	Gas *Gas `json:"gas,omitempty"`
 	// Version 3: the electricity tariff; the apps work out the bill so far and the cost now from the net meter.
 	Tariff *Tariff `json:"tariff,omitempty"`
 }

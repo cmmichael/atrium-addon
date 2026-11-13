@@ -642,9 +642,19 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 	// The meters the week at home and the charts read from the recorder's long-term statistics: one Home Assistant
 	// keeps none for (no state_class, or left out of the recorder) gives them nothing, so the file is told.
 	if d.Statistics != nil && m.Energy != nil {
-		meters := append([]string{h.Energy.SolarToday, h.Energy.UsedToday, h.Energy.WaterToday}, h.Energy.UsedAlso...)
-		if w := h.Energy.Water; w != nil {
-			meters = append(meters, w.Today)
+		meters := append([]string{h.Energy.SolarToday, h.Energy.UsedToday}, h.Energy.UsedAlso...)
+		// Water and gas whose days come from a statistic of their own need none on today's sensor.
+		if w := h.Energy.Water; w == nil || w.Statistic == "" {
+			meters = append(meters, h.Energy.WaterToday)
+			if w != nil {
+				meters = append(meters, w.Today)
+			}
+		}
+		if g := h.Energy.Gas; g != nil {
+			if g.Statistic == "" {
+				meters = append(meters, g.Today)
+			}
+			meters = append(meters, g.Cost)
 		}
 		if t := h.Energy.Tariff; t != nil {
 			meters = append(meters, t.Net)
