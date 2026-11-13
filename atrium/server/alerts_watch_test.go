@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -39,16 +43,22 @@ func TestTheAlertsListenerNoticesASilentHomeAssistant(t *testing.T) {
 		}
 	}))
 	defer ha.Close()
+	var logged lockedBuffer
+	log.SetOutput(&logged)
+	defer log.SetOutput(os.Stderr)
 	g := gateway(ha, Identity{})
 	g.alertPing, g.alertSilence = 20*time.Millisecond, 150*time.Millisecond
 	go g.watchAlerts()
 
 	deadline := time.Now().Add(4 * time.Second)
-	for connects.Load() < 2 && time.Now().Before(deadline) {
+	for !strings.Contains(logged.String(), "alerts: listening again after") && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if connects.Load() < 2 {
 		t.Fatalf("connected %d times: a silent Home Assistant was never given up", connects.Load())
+	}
+	if out := logged.String(); !strings.Contains(out, "alerts: listening for atrium_alert events\n") || !strings.Contains(out, "alerts: listening again after 1s, 1 attempts") {
+		t.Errorf("the log does not say the listener connected and came back:\n%s", out)
 	}
 	if pings.Load() == 0 {
 		t.Error("no ping was sent on the alerts socket")
@@ -103,3 +113,16 @@ func TestPongsKeepTheAlertsListenerConnected(t *testing.T) {
 		t.Errorf("last heard %s ago", time.Since(seen))
 	}
 }
+
+// lockedBuffer is a log destination the test can read while the listener writes.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+func (l *lockedBuffer) String() string { l.mu.Lock(); defer l.mu.Unlock(); return l.b.String() }

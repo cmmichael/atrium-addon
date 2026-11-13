@@ -33,6 +33,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cmmichael/atrium/addon/atrium/server/house"
@@ -43,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.36"
+const version = "0.9.37"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -155,6 +156,13 @@ type Gateway struct {
 	alertsListening bool
 	alertsSince     time.Time
 	alertsConnects  int
+	alertsDown      time.Time     // when the last subscription ended (or the first attempt failed); zero while listening
+	alertsTries     int           // attempts that failed since then
+	quit            chan struct{} // closed when the add-on is told to stop (stop.go)
+	quitOnce        sync.Once
+	sockets         sync.WaitGroup // the apps' WebSockets open now
+	open            atomic.Int32
+	stopHooks       []func()      // run last when stopping: Tailscale's own close
 	alertPing       time.Duration // tests shorten these; zero means alertPing and alertSilence (alerts.go)
 	alertSilence    time.Duration
 	digestReport    *digestReport // the week's report (digest.go), and when and for which layout it was worked out
@@ -700,6 +708,9 @@ func (g *Gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, id Iden
 		return
 	}
 	defer client.CloseNow()
+	g.sockets.Add(1)
+	g.open.Add(1)
+	defer func() { g.open.Add(-1); g.sockets.Done() }()
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	server, _, err := websocket.Dial(ctx, up.WS, nil)
@@ -743,8 +754,12 @@ func (g *Gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, id Iden
 			}
 		}
 	}()
-	<-done
-	client.Close(websocket.StatusNormalClosure, "")
+	select {
+	case <-done:
+		client.Close(websocket.StatusNormalClosure, "")
+	case <-g.stopping():
+		client.Close(websocket.StatusGoingAway, "Atrium is restarting")
+	}
 	server.Close(websocket.StatusNormalClosure, "")
 }
 
@@ -896,6 +911,7 @@ func main() {
 		opts.Hostname = "atrium"
 	}
 	g := &Gateway{Opts: opts, ConfigPath: env("ATRIUM_CONFIG", "/data/config.json"), started: time.Now()}
+	g.stopOnSignal()
 	if cfg, err := house.Load(g.ConfigPath); err != nil {
 		log.Fatalf("configuration %s: %v", g.ConfigPath, err)
 	} else {
@@ -1024,6 +1040,7 @@ func main() {
 
 	srv := &tsnet.Server{Hostname: opts.Hostname, Dir: env("ATRIUM_STATE", "/data/tsnet"), AuthKey: opts.AuthKey, UserLogf: log.Printf, Logf: func(string, ...any) {}}
 	defer srv.Close()
+	g.onStop(func() { srv.Close() })
 	log.Printf("Atrium %s: joining the tailnet as %q. The first time, sign in from the Atrium panel in Home Assistant (or open the link below once).", version, opts.Hostname)
 	g.setup = Setup{State: "starting"}
 	if err := srv.Start(); err != nil {

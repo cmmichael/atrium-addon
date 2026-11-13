@@ -269,6 +269,14 @@ func (g *Gateway) watchAlerts() {
 		subscribed, err := g.alertEvents(context.Background())
 		g.mu.Lock()
 		g.alertsListening = false
+		if subscribed { // the outage starts now; the attempts are counted until one subscribes again (alertEvents)
+			g.alertsDown, g.alertsTries = time.Now(), 0
+		} else {
+			if g.alertsDown.IsZero() {
+				g.alertsDown = time.Now()
+			}
+			g.alertsTries++
+		}
 		g.mu.Unlock()
 		if subscribed {
 			pause = time.Second
@@ -324,6 +332,15 @@ func (g *Gateway) alertEvents(ctx context.Context) (subscribed bool, err error) 
 	g.mu.Lock()
 	g.alertsListening, g.alertsSince = true, time.Now()
 	g.alertsConnects++
+	switch {
+	case g.alertsConnects == 1 && g.alertsTries == 0:
+		log.Printf("alerts: listening for atrium_alert events")
+	case g.alertsConnects == 1:
+		log.Printf("alerts: listening for atrium_alert events after %s, %d attempts", g.alertsSince.Sub(g.alertsDown).Round(time.Second), g.alertsTries+1)
+	default:
+		log.Printf("alerts: listening again after %s, %d attempts", g.alertsSince.Sub(g.alertsDown).Round(time.Second), g.alertsTries+1)
+	}
+	g.alertsDown, g.alertsTries = time.Time{}, 0
 	g.mu.Unlock()
 	// Home Assistant's own ping, so a quiet evening still hears from it; ids go on from the subscription's.
 	go func() {

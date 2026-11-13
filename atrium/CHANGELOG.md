@@ -3,6 +3,16 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.37
+
+- Atrium stops cleanly. When Home Assistant stops or restarts the add-on, Atrium now tells the apps connected at
+  that moment that it is going away, so they reconnect as soon as it is back instead of waiting out a dead
+  connection. It then closes its Tailscale node and exits. Before, the Supervisor had to kill it ("did not handle
+  SIGTERM").
+- The log says when alerts are back. After Home Assistant restarts, the add-on writes "alerts: listening again
+  after 2m40s, 10 attempts" once it has subscribed again, so you can see that alerts recovered. The first
+  connection after a start is logged too.
+
 ## 0.9.36
 
 - The week has gas. Name the supplier's daily sensors under `energy: gas:` (`today`, and `cost` where there is
