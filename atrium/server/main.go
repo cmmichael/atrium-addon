@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.37"
+const version = "0.9.38"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -1162,9 +1162,10 @@ func main() {
 
 	serve := func(ln net.Listener, scheme string) {
 		log.Printf("Listening on %s://%s", scheme, name)
-		if err := http.Serve(ln, g); err != nil {
+		if err := g.serveUntilStopped(ln, g); err != nil {
 			log.Fatalf("%s: %v", scheme, err)
 		}
+		select {} // stopping: stop exits once it has finished
 	}
 	plain, err := srv.Listen("tcp", ":80")
 	if err != nil {

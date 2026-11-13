@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -61,4 +63,16 @@ func (g *Gateway) stop(why string) {
 		f()
 	}
 	log.Printf("Stopped")
+}
+
+// serveUntilStopped serves ln. Once the add-on is stopping, the listener closed under it (Tailscale's close) is
+// not an error: the caller must not exit before stop has finished.
+func (g *Gateway) serveUntilStopped(ln net.Listener, h http.Handler) error {
+	err := http.Serve(ln, h)
+	select {
+	case <-g.stopping():
+		return nil
+	default:
+		return err
+	}
 }

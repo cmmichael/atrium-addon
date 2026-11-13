@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"net"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -49,5 +51,32 @@ func TestStoppingClosesTheAppsWebSocketsAsGoingAway(t *testing.T) {
 	}
 	if n := g.open.Load(); n != 0 {
 		t.Errorf("%d sockets still counted open", n)
+	}
+}
+
+// Tailscale's close at the end of stop closes the listeners under http.Serve. That must not count as a failure
+// (in 0.9.37 it was fatal, and the add-on exited 1 before logging "Stopped"); before stopping it still does.
+func TestAListenerClosedByStoppingIsNotAnError(t *testing.T) {
+	g := &Gateway{}
+	broken, _ := net.Listen("tcp", "127.0.0.1:0")
+	broken.Close()
+	if g.serveUntilStopped(broken, http.NotFoundHandler()) == nil {
+		t.Error("a listener that failed before stopping was not an error")
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.onStop(func() { ln.Close() })
+	served := make(chan error, 1)
+	go func() { served <- g.serveUntilStopped(ln, http.NotFoundHandler()) }()
+	g.stop("test")
+	select {
+	case err := <-served:
+		if err != nil {
+			t.Errorf("serving ended with %v after stopping", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("serving did not end when the listener closed")
 	}
 }

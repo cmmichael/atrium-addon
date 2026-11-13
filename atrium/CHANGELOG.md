@@ -3,6 +3,11 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.38
+
+- The clean stop is clean. In 0.9.37, closing Tailscale on the way out made the add-on exit with an error (code 1)
+  before it logged "Stopped". It now finishes, logs "Stopped" and exits 0.
+
 ## 0.9.37
 
 - Atrium stops cleanly. When Home Assistant stops or restarts the add-on, Atrium now tells the apps connected at
