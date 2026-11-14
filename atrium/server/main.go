@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.42"
+const version = "0.9.43"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -969,6 +969,7 @@ func main() {
 			g.appsPath = os.TempDir() + "/atrium-apps.json"
 		}
 		g.loadAppContact()
+		g.onStop(g.saveAppContact) // the last seconds too, not just the last once-a-minute write
 		g.alerts.load()
 		go g.watchAlerts()
 		go func() {
@@ -1022,6 +1023,7 @@ func main() {
 	go g.houseJSON(context.Background()) // the first render before anyone asks
 	g.alerts.load()
 	g.loadAppContact()
+	g.onStop(g.saveAppContact) // the last seconds too, not just the last once-a-minute write
 	go g.watchAlerts()
 	go func() {
 		home := g.homeName(context.Background())

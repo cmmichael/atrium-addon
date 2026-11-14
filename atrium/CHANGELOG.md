@@ -3,6 +3,11 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.43
+
+- Health's last app contact is exact across a restart: a clean stop writes it down once more, so the seconds since
+  the last once-a-minute write are no longer lost.
+
 ## 0.9.42
 
 - Search and Ask are one field on the web: the search field at the top now says "Search or ask your home" and has

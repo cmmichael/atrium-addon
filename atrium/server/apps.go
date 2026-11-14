@@ -31,10 +31,29 @@ func (g *Gateway) appContact(who string) {
 	path := g.appsPath
 	g.mu.Unlock()
 	if save {
-		data, _ := json.Marshal(appContactFile{At: now, Who: who})
-		if err := os.WriteFile(path, data, 0o600); err != nil {
-			log.Printf("apps: could not keep the last contact: %v", err)
-		}
+		writeAppContact(path, now, who)
+	}
+}
+
+// saveAppContact writes the last contact down if it is newer than what the file has: on a clean stop, so the
+// once-a-minute limit does not lose the last seconds before a restart.
+func (g *Gateway) saveAppContact() {
+	g.mu.Lock()
+	at, who, path := g.appSeen, g.appWho, g.appsPath
+	newer := path != "" && !at.IsZero() && at.After(g.appSaved)
+	if newer {
+		g.appSaved, g.appSavedBy = at, who
+	}
+	g.mu.Unlock()
+	if newer {
+		writeAppContact(path, at, who)
+	}
+}
+
+func writeAppContact(path string, at time.Time, who string) {
+	data, _ := json.Marshal(appContactFile{At: at, Who: who})
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		log.Printf("apps: could not keep the last contact: %v", err)
 	}
 }
 

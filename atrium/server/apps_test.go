@@ -40,3 +40,29 @@ func TestTheLastAppContactIsKeptAcrossRestarts(t *testing.T) {
 		t.Errorf("health with no contact: %s", b)
 	}
 }
+
+func TestACleanStopKeepsTheLastSeconds(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	path := filepath.Join(t.TempDir(), "apps.json")
+
+	g := gateway(ha, Identity{})
+	g.appsPath = path
+	g.appContact("kid@example.com (phone)") // written: the first contact
+	time.Sleep(10 * time.Millisecond)
+	g.appContact("kid@example.com (phone)") // within the minute: not written yet
+	g.mu.Lock()
+	last := g.appSeen
+	g.mu.Unlock()
+	g.saveAppContact()
+
+	restarted := gateway(ha, Identity{})
+	restarted.appsPath = path
+	restarted.loadAppContact()
+	restarted.mu.Lock()
+	at := restarted.appSeen
+	restarted.mu.Unlock()
+	if !at.Equal(last) {
+		t.Errorf("after a clean stop the last contact is %v, not %v", at, last)
+	}
+}
