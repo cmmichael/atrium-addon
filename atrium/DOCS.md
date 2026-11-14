@@ -239,6 +239,19 @@ Every question, from any app, is kept on this side with the steps, the answer an
 this add-on's Log tab, and the full record in the add-on's data, which the owner and administrators can read at
 `/atrium/assist`. Use it to see what the assistant gets wrong, and expose more or improve its prompt.
 
+### Memory and dreaming
+
+To have the assistant remember things between conversations, make a to-do list called **AI Memory** (Settings →
+Devices & services → Add integration → Local To-do), expose it to Assist, and tell the assistant in its prompt that
+this is its memory: to read it when a question may depend on something it was told, to add a short sentence when
+asked to remember, and to remove one when asked to forget.
+
+Each night at 03:30 the add-on consolidates that list with Home Assistant's AI task (an `ai_task` entity, such as
+the one the Anthropic or Google integrations provide): duplicates are merged, facts the day's conversations changed
+are updated, facts whose date has passed are dropped, and new lasting facts are added. It runs only when something
+was asked that day, never empties the list or drops most of it, and keeps each night's before and after in the
+add-on's data. The add-on's log says what it did.
+
 ## Good to know
 
 - Atrium is its own machine on your tailnet (named `atrium` unless you change it), using Tailscale's `tsnet`

@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.46"
+const version = "0.9.47"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -132,6 +132,7 @@ type Gateway struct {
 	updateID  string     // the add-on's update entity in Home Assistant, once found (update.go)
 	telemetry telemetry  // the apps' diagnostics (telemetry.go)
 	assist    *assistLog // AI Assist's conversations, kept on disk (assistlog.go)
+	dreams    dreamer    // AI Assist's memory, consolidated each night (dream.go)
 	alerts    *alerts    // the phones that take alerts, and the sending (alerts.go, apns.go)
 	// For /atrium/health (health.go): when this process started, the last word from Home Assistant, the layout's
 	// entities Home Assistant reports unavailable, the newest add-on version seen.
@@ -592,6 +593,8 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		g.serveTelemetry(w, r, id)
 	case r.URL.Path == "/atrium/assist":
 		g.serveAssist(w, r, id)
+	case r.URL.Path == "/atrium/dream":
+		g.serveDream(w, r, id)
 	case r.URL.Path == "/atrium/devices":
 		g.serveDevices(w, r, id)
 	case r.URL.Path == "/atrium/alerts":
@@ -931,6 +934,7 @@ func main() {
 	g.alerts = &alerts{path: env("ATRIUM_DEVICES", "/data/devices.json")}
 	g.appsPath = env("ATRIUM_APPS", "/data/apps.json")
 	g.assist = &assistLog{path: env("ATRIUM_ASSIST", "/data/assist.jsonl"), max: 8 << 20}
+	g.dreams.dir = env("ATRIUM_MEMORY", "/data/memory")
 	if apns, err := newAPNS(opts); err != nil {
 		log.Printf("alerts: %v; alerts are logged only until the options are right", err)
 	} else {
@@ -975,10 +979,14 @@ func main() {
 		if os.Getenv("ATRIUM_ASSIST") == "" {
 			g.assist.path = os.TempDir() + "/atrium-assist.jsonl"
 		}
+		if os.Getenv("ATRIUM_MEMORY") == "" {
+			g.dreams.dir = os.TempDir() + "/atrium-memory"
+		}
 		g.loadAppContact()
 		g.onStop(g.saveAppContact) // the last seconds too, not just the last once-a-minute write
 		g.alerts.load()
 		go g.watchAlerts()
+		go g.watchDreams()
 		go func() {
 			home := g.homeName(context.Background())
 			g.alerts.mu.Lock()
@@ -1032,6 +1040,7 @@ func main() {
 	g.loadAppContact()
 	g.onStop(g.saveAppContact) // the last seconds too, not just the last once-a-minute write
 	go g.watchAlerts()
+	go g.watchDreams()
 	go func() {
 		home := g.homeName(context.Background())
 		g.alerts.mu.Lock()

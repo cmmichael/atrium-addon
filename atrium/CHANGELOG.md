@@ -3,6 +3,18 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.47
+
+- AI Assist dreams: at 03:30 each night, if anything was asked that day, the add-on hands the assistant's memory
+  (a to-do list called AI Memory) and the day's questions and answers to Home Assistant's AI task, which merges
+  duplicates, updates what changed, drops what has passed and adds durable facts. The list is brought to that item
+  by item. It never empties the list or drops most of it, and each night's before and after is kept in the add-on's
+  data. Owners and administrators can see the last night at /atrium/dream, or run it now with a POST.
+- AI Assist's history: every past question from every app, with its steps, the answer and the time it took, on
+  the web (the clock in the AI Assist pane) and in the apps.
+- A follow-up after Home Assistant has forgotten the conversation (five minutes) still makes sense: the last few
+  exchanges go along with it.
+
 ## 0.9.46
 
 - AI Assist's log is kept on the Home Assistant side. Every question asked in the apps is saved with what the
