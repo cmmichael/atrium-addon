@@ -3,6 +3,12 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.45
+
+- AI Assist is a chat: the whole conversation is kept between visits, with times between stretches, bubbles, a
+  typing indicator and a read receipt under the last question. A new conversation starts from the pencil button;
+  an empty search field offers to carry on the last one.
+
 ## 0.9.44
 
 - Ask is now AI Assist, and the conversation stays in the search pane: no panel pops up. Its thinking and the tools
