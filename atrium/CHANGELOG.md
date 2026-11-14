@@ -3,6 +3,12 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.48
+
+- AI Assist's follow-ups know what happened: a question within a quarter of an hour of the last one carries what
+  changed in the home since (lights, switches, speakers and what they play, covers, locks, climate, the alarm,
+  scenes run), each with its time. "Did it work?" and "were they turned back on?" now have an answer.
+
 ## 0.9.47
 
 - AI Assist dreams: at 03:30 each night, if anything was asked that day, the add-on hands the assistant's memory
