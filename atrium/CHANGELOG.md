@@ -3,6 +3,11 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.41
+
+- Atrium now says "home" rather than "house" in the web app and this documentation, so it reads right for an
+  apartment too. "Ask the house" is now "Ask your home". Nothing else changes.
+
 ## 0.9.40
 
 - Health's last app contact survives restarts and updates: it is kept in the add-on's data folder, so a phone that

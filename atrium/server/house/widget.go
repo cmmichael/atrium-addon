@@ -125,13 +125,13 @@ func renderWidget(wm WidgetMapping, h House, d Dump, hidden func(string) bool) (
 		switch {
 		case im.Word == "alarm":
 			if h.Summary.Alarm == "" {
-				problem("the house has no alarm")
+				problem("the home has no alarm")
 				continue
 			}
 			add(WidgetItem{ID: "alarm", Kind: "alarm", Name: "Alarm", Icon: "shield.fill", Entity: h.Summary.Alarm})
 		case im.Word == "solar":
 			if h.Energy.SolarPower == "" {
-				problem("the house has no solar sensor")
+				problem("the home has no solar sensor")
 				continue
 			}
 			add(WidgetItem{ID: "solar", Kind: "readout", Name: "Solar", Icon: "sun.max.fill", Entity: h.Energy.SolarPower, Unit: unitOf(d, h.Energy.SolarPower)})

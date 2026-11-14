@@ -47,7 +47,7 @@ machine, included in backups; Atrium sees nothing else of Home Assistant's files
 house with the **atrium-mapping** skill:
 
 - **Recommended:** if you run the Claude Code app in Home Assistant, tell it to run the atrium-mapping skill from
-  github.com/cmmichael/atrium-addon. It reads your house, decides the judgment calls (which camera is the doorbell, which
+  github.com/cmmichael/atrium-addon. It reads your home, decides the judgment calls (which camera is the doorbell, which
   sensors are solar and grid, which rooms matter most) and writes the file to Atrium itself, once you list it under **Apps that may write the layout**: on the set-up page, press **Allow an app…**, pick it from the installed apps (or type its slug and check it) and confirm; it applies at once, no restart. The same list is in Atrium's Configuration tab. An app's slug is
   `<repository-hash>_<name>`, `d7e97e69_claudecode` for the Claude Code app installed from its own repository; the
   Supervisor shows it in the app's address bar. A listed app is trusted by its IPv4 address on the apps'
@@ -67,7 +67,7 @@ house with the **atrium-mapping** skill:
     update it). *Status 404*: the slug is not installed. *is "stopped"*: the app is not running.
   - *the Supervisor did not answer*: the Supervisor is busy or restarting; try again.
 - **Otherwise:** point your Claude at Atrium. Atrium is an MCP server on your tailnet
-  (`https://atrium.<your-tailnet>.ts.net/mcp`): the contract, the skill, your house, a draft and saving are its
+  (`https://atrium.<your-tailnet>.ts.net/mcp`): the contract, the skill, your home, a draft and saving are its
   tools, and Tailscale is the sign-in. In Claude Code: `claude mcp add --transport http atrium <that address>`,
   then ask it to make the layout.
 
@@ -90,7 +90,7 @@ delete them in Home Assistant: **Settings → Devices & services → Entities**.
 
 ## Beyond rooms: version 3 of the layout
 
-A `version: 3` file (add-on 0.9.9 and later) can also describe what a house has besides rooms and scenes: the
+A `version: 3` file (add-on 0.9.9 and later) can also describe what a home has besides rooms and scenes: the
 water meter and its shut-off, air quality per room, appliances, thermostats that serve several rooms, what counts
 as needing attention, seasonal lights, vehicles, a pool, the day's calendars, drives, reminders and schedules, and
 panels for anything else. None of it is guessed; the file names every entity, the add-on checks each against Home
@@ -182,7 +182,7 @@ the app: developer.apple.com → Certificates, Identifiers & Profiles → Keys �
 service (APNs)*, download the `.p8` file (once; it cannot be downloaded again). In the add-on's Configuration tab
 set `apns_team_id` (Membership details), `apns_key_id` (the key's id) and `apns_key` (the whole contents of the
 `.p8` file, `-----BEGIN PRIVATE KEY-----` to the end). Apple sees the device token, the title and the body; nothing
-else leaves the house, and without a key the events are logged and not sent.
+else leaves the home, and without a key the events are logged and not sent.
 
 Without a key of your own, set `push_relay` to the address of a push relay instead: a small service that holds the
 publisher's key and sends for every household that uses it (its source is `relay/` in Atrium's repository). The
@@ -193,13 +193,13 @@ first time the app connects after allowing notifications; `GET /atrium/devices` 
 
 ## The week at home
 
-Every Monday the house has a week to look back on, and Atrium writes it up from Home Assistant's own recorder:
-what the house used and the solar made against the week before, what the electricity came to on the tariff,
+Every Monday the home has a week to look back on, and Atrium writes it up from Home Assistant's own recorder:
+what the home used and the solar made against the week before, what the electricity came to on the tariff,
 gas and what it came to, water, the nights a room's CO₂ ran past the layout's "poor" band, locks left unlocked and doors left open for an
-hour or more at night (from midnight to 6 in the morning, in the house's own time zone), and how often each
+hour or more at night (from midnight to 6 in the morning, in the home's own time zone), and how often each
 doorbell rang. A door or lock that read open all week, never once closed, gets a line of its own, since a stuck
 sensor is the likelier cause. It reads only what the layout already names (`energy`, `water`, `climate.air`, `security`),
-so nothing new needs mapping; a house without solar or locks simply gets no such line. Energy, gas and water come
+so nothing new needs mapping; a home without solar or locks simply gets no such line. Energy, gas and water come
 from the recorder's daily statistics of the meters, never from adding up power, so an inverter that drops off for
 an hour leaves the totals right. A meter Home Assistant keeps no statistics for gives no line, and the layout's
 problems say so. Gas needs `energy.gas` in the layout (the day's gas and, optionally, its cost). A water company's
@@ -247,11 +247,11 @@ When the recorder has nothing for the week, no notification is sent and the add-
 - Nothing inside Home Assistant is changed: no custom integration, no change to its sign-in.
 - The app sends its diagnostics here and nowhere else (Settings → Diagnostics in the app turns it off): when it
   launched and why, when it went to the background and came back, how long each connection took and why it
-  dropped, the device model and the iOS and app versions. Nothing about the house is in them. They appear in
+  dropped, the device model and the iOS and app versions. Nothing about the home is in them. They appear in
   this add-on's log as `app <login> (<device>) …` lines, and `GET /atrium/telemetry` lists the latest per device
   for administrators.
 - `GET /atrium/health` says how the add-on and its house are doing: version, uptime, whether Home Assistant is
-  answering and when it last did, the tailnet, the layout's rooms and problems, when the house was last built and
+  answering and when it last did, the tailnet, the layout's rooms and problems, when the home was last built and
   whether it is a stale copy, the entities it shows that Home Assistant reports unavailable, and whether alerts
   can be sent. The app shows it under Settings → House health.
 - The in-app preferences live in `/data/config.json` and can be read and written at `/atrium/config` (JSON, `GET`

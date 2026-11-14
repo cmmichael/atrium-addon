@@ -96,7 +96,7 @@ widgets:
 		t.Errorf("items: %+v", w.Items)
 	}
 	want := []string{
-		"widget Evening: the house has no solar sensor",
+		"widget Evening: the home has no solar sensor",
 		"widget Evening: Home Assistant has no scene.nothing",
 		"widget Evening: sensor.shed_pipe_temperature cannot be toggled; use readout: for a sensor, or a button with an action",
 		"widget Evening: no room attic",
