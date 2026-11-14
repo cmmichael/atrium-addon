@@ -3,6 +3,12 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.42
+
+- Search and Ask are one field on the web: the search field at the top now says "Search or ask your home" and has
+  the microphone in it. Words that match nothing go to the home as a question with Enter. The separate Ask bar on
+  Home is gone.
+
 ## 0.9.41
 
 - Atrium now says "home" rather than "house" in the web app and this documentation, so it reads right for an
