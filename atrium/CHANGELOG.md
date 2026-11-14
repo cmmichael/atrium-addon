@@ -3,6 +3,13 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.44
+
+- Ask is now AI Assist, and the conversation stays in the search pane: no panel pops up. Its thinking and the tools
+  it used (looking at the home, turning a light on) show as it works, and fold away under each answer.
+- "Done" shows only when the assistant changed something. An AI agent calls every answer done, questions included.
+- The assistant's own pipeline is used where Home Assistant has one for it. Older ones are asked the plain way.
+
 ## 0.9.43
 
 - Health's last app contact is exact across a restart: a clean stop writes it down once more, so the seconds since
