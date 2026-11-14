@@ -3,6 +3,11 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.49
+
+- The search field no longer changes as the app connects: once this home has answered AI Assist, the field offers
+  it (and the microphone) from the start. A question asked while connecting waits for the home.
+
 ## 0.9.48
 
 - AI Assist's follow-ups know what happened: a question within a quarter of an hour of the last one carries what
