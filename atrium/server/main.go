@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.45"
+const version = "0.9.46"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -128,10 +128,11 @@ type Gateway struct {
 
 	mu        sync.Mutex
 	home      string
-	homeAsked time.Time // when Home Assistant was last asked for the name and did not say
-	updateID  string    // the add-on's update entity in Home Assistant, once found (update.go)
-	telemetry telemetry // the apps' diagnostics (telemetry.go)
-	alerts    *alerts   // the phones that take alerts, and the sending (alerts.go, apns.go)
+	homeAsked time.Time  // when Home Assistant was last asked for the name and did not say
+	updateID  string     // the add-on's update entity in Home Assistant, once found (update.go)
+	telemetry telemetry  // the apps' diagnostics (telemetry.go)
+	assist    *assistLog // AI Assist's conversations, kept on disk (assistlog.go)
+	alerts    *alerts    // the phones that take alerts, and the sending (alerts.go, apns.go)
 	// For /atrium/health (health.go): when this process started, the last word from Home Assistant, the layout's
 	// entities Home Assistant reports unavailable, the newest add-on version seen.
 	started      time.Time
@@ -589,6 +590,8 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		g.serveUpdate(w, r, id)
 	case r.URL.Path == "/atrium/telemetry":
 		g.serveTelemetry(w, r, id)
+	case r.URL.Path == "/atrium/assist":
+		g.serveAssist(w, r, id)
 	case r.URL.Path == "/atrium/devices":
 		g.serveDevices(w, r, id)
 	case r.URL.Path == "/atrium/alerts":
@@ -927,6 +930,7 @@ func main() {
 	}
 	g.alerts = &alerts{path: env("ATRIUM_DEVICES", "/data/devices.json")}
 	g.appsPath = env("ATRIUM_APPS", "/data/apps.json")
+	g.assist = &assistLog{path: env("ATRIUM_ASSIST", "/data/assist.jsonl"), max: 8 << 20}
 	if apns, err := newAPNS(opts); err != nil {
 		log.Printf("alerts: %v; alerts are logged only until the options are right", err)
 	} else {
@@ -967,6 +971,9 @@ func main() {
 		}
 		if os.Getenv("ATRIUM_APPS") == "" {
 			g.appsPath = os.TempDir() + "/atrium-apps.json"
+		}
+		if os.Getenv("ATRIUM_ASSIST") == "" {
+			g.assist.path = os.TempDir() + "/atrium-assist.jsonl"
 		}
 		g.loadAppContact()
 		g.onStop(g.saveAppContact) // the last seconds too, not just the last once-a-minute write

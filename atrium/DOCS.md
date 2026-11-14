@@ -229,6 +229,16 @@ actions:
 
 When the recorder has nothing for the week, no notification is sent and the add-on's log says why.
 
+## AI Assist
+
+The field at the top of every screen searches, and sends anything else to Home Assistant's Assist as a question or
+an order. It answers through your voice assistant's pipeline (Settings → Voice assistants), so an AI agent's
+thinking and the tools it used show under each answer. It sees only what is exposed to Assist.
+
+Every question, from any app, is kept on this side with the steps, the answer and how long it took: one line each in
+this add-on's Log tab, and the full record in the add-on's data, which the owner and administrators can read at
+`/atrium/assist`. Use it to see what the assistant gets wrong, and expose more or improve its prompt.
+
 ## Good to know
 
 - Atrium is its own machine on your tailnet (named `atrium` unless you change it), using Tailscale's `tsnet`

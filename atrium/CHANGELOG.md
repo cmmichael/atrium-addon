@@ -3,6 +3,13 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.46
+
+- AI Assist's log is kept on the Home Assistant side. Every question asked in the apps is saved with what the
+  assistant did (its thinking, the tools it called and whether they worked), the answer and how long it took, in
+  the add-on's data (it survives restarts and updates, and keeps the newest few megabytes). Each one is also a line
+  in this add-on's Log tab. The owner and administrators can read the whole record at /atrium/assist.
+
 ## 0.9.45
 
 - AI Assist is a chat: the whole conversation is kept between visits, with times between stretches, bubbles, a
