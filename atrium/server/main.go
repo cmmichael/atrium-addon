@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.56"
+const version = "0.9.57"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -103,6 +103,7 @@ type Upstream struct {
 }
 
 type Gateway struct {
+	pings [2]time.Duration // how often an app socket is pinged and how long it may take to answer; zero: the defaults
 	Who   func(ctx context.Context, remoteAddr string) (Identity, error)
 	Owner string // the login that signed this machine in to the tailnet: always allowed
 	Opts  Options
@@ -714,6 +715,17 @@ func forward(w http.ResponseWriter, r *http.Request, base *url.URL, token string
 	proxy.ServeHTTP(w, r)
 }
 
+// How often an app's WebSocket is asked whether it is still there, and how long it has to answer (a test sets
+// Gateway.pings shorter).
+const pingEvery, pingWait = 30 * time.Second, 20 * time.Second
+
+func (g *Gateway) pingTimes() (time.Duration, time.Duration) {
+	if g.pings[0] > 0 {
+		return g.pings[0], g.pings[1]
+	}
+	return pingEvery, pingWait
+}
+
 // serveWebSocket joins the caller's WebSocket to Home Assistant's. Home Assistant opens by asking for a
 // token; the caller answers with a placeholder, which is replaced here by the real one.
 func (g *Gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, id Identity, up Upstream) {
@@ -776,7 +788,32 @@ func (g *Gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, id Iden
 			}
 		}
 	}()
+	lost := make(chan struct{}, 1)
+	go func() { // a caller that is gone (an app iOS ended, a phone that left the network) sends nothing and no reset
+		// arrives over the tailnet: ask every so often, and close what does not answer. Apps and browsers answer
+		// pings by themselves.
+		every, wait := g.pingTimes()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(every):
+			}
+			pctx, pcancel := context.WithTimeout(ctx, wait)
+			err := client.Ping(pctx)
+			pcancel()
+			if err != nil {
+				if ctx.Err() == nil {
+					log.Printf("%s (%s): no answer to a ping for %v; closing its connection", id.Login, id.Device, wait)
+					lost <- struct{}{}
+				}
+				return
+			}
+		}
+	}()
 	select {
+	case <-lost:
+		client.CloseNow() // nothing there to say goodbye to
 	case <-done:
 		client.Close(websocket.StatusNormalClosure, "")
 	case <-g.stopping():

@@ -80,3 +80,47 @@ func TestAListenerClosedByStoppingIsNotAnError(t *testing.T) {
 		t.Error("serving did not end when the listener closed")
 	}
 }
+
+// An app that is gone sends nothing and no reset arrives: the add-on's ping goes unanswered and the socket is
+// closed, so apps.open counts only apps that are there. One that answers stays.
+func TestASocketThatDoesNotAnswerPingsIsClosed(t *testing.T) {
+	ha := fakeHA(t)
+	defer ha.Close()
+	g := gateway(ha, Identity{Login: "kid@example.com"})
+	g.pings = [2]time.Duration{50 * time.Millisecond, 100 * time.Millisecond}
+	front := httptest.NewServer(g)
+	defer front.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	url := "ws" + strings.TrimPrefix(front.URL, "http") + "/api/websocket"
+
+	alive, _, err := websocket.Dial(ctx, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer alive.CloseNow()
+	go func() { // reading answers pings, as an app or a browser does
+		for {
+			if _, _, err := alive.Read(ctx); err != nil {
+				return
+			}
+		}
+	}()
+	gone, _, err := websocket.Dial(ctx, url, nil) // never reads again: pings go unanswered
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gone.CloseNow()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for g.open.Load() != 1 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := g.open.Load(); n != 1 {
+		t.Fatalf("%d sockets counted open, want 1 (the one that answers)", n)
+	}
+	time.Sleep(300 * time.Millisecond) // several more pings: the live one is still there
+	if n := g.open.Load(); n != 1 {
+		t.Errorf("%d sockets counted open after more pings, want 1", n)
+	}
+}

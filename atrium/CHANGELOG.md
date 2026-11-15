@@ -3,6 +3,10 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.57
+
+- App connections are pinged every 30 seconds and closed when there is no answer within 20, so an app iOS ended no longer counts as open.
+
 ## 0.9.56
 
 - No changes: a release to try the app's update screen.
