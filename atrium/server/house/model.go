@@ -283,6 +283,18 @@ func (s *State) str(key string) string {
 	return v
 }
 
+// Media player features (MediaPlayerEntityFeature), declared whatever the player's state.
+const (
+	featureVolumeSet    = 4
+	featureSelectSource = 2048
+)
+
+// supports says whether the entity declares a feature in supported_features.
+func (s *State) supports(feature int) bool {
+	v, ok := s.num("supported_features")
+	return ok && int(v)&feature != 0
+}
+
 func (s *State) num(key string) (float64, bool) {
 	if s == nil {
 		return 0, false
@@ -305,6 +317,9 @@ type Dump struct {
 	ConfigEntries []map[string]any
 	// recorder/list_statistic_ids: the entities Home Assistant keeps long-term statistics for. Nil: not asked.
 	Statistics map[string]bool
+	// energy/get_prefs: the Energy dashboard's own declaration of the home's meters (grid, solar, battery, gas,
+	// water) and the devices whose use it tracks. Nil: not asked, or the dashboard is not set up.
+	EnergyPrefs map[string]any
 	// Home Assistant's state from get_config ("RUNNING" once started up) and how long it has been running.
 	// Integrations load in the first minutes, so what is restored then means nothing yet; see Settled.
 	Running    bool

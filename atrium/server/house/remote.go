@@ -223,7 +223,8 @@ func (x *index) renderRemote(rm RemoteMapping, names map[string]string) (r Remot
 	switch {
 	case rm.Inputs == nil:
 		if st := x.d.States[player]; st != nil {
-			if list, _ := st.Attributes["source_list"].([]any); len(list) > 0 {
+			// The source list is missing while a television is off; the feature it declares is not.
+			if list, _ := st.Attributes["source_list"].([]any); len(list) > 0 || st.supports(featureSelectSource) {
 				inputs = &Inputs{Entity: player}
 			}
 		}
@@ -287,7 +288,9 @@ func (x *index) renderRemote(rm RemoteMapping, names map[string]string) (r Remot
 		Room:   firstOf(rm.Room, x.byID[remote].area, x.byID[player].area),
 		Player: player, Volume: volume, Keys: keys, Inputs: inputs, Buttons: buttons, Readouts: readouts,
 	}
-	if st := x.d.States[r.Volume]; st == nil || st.Attributes["volume_level"] == nil {
+	// A level to show: what the player declares it can set, not whether it reports a level now (an off television
+	// reports none, and the remote must not lose its volume until the next build after it is turned on).
+	if st := x.d.States[r.Volume]; st == nil || (st.Attributes["volume_level"] == nil && !st.supports(featureVolumeSet)) {
 		r.Volume = "" // no level to show: the keys still work
 	}
 	return r, problems, true

@@ -418,6 +418,15 @@ func (x *index) autoEnergy() EnergyMapping {
 	// battery_level are not: a sign convention cannot be read off a name, so the file (or the skill's draft, which
 	// marks its guess "# check") says which sensors those are.
 	e := EnergyMapping{LoadPower: []PowerRef{}, Consumers: []string{}}
+	// First what the Energy dashboard declares: the home's own choice, in any language and for any brand.
+	prefs := energyPrefsOf(x.d.EnergyPrefs)
+	if len(prefs.solar) > 0 {
+		e.SolarPower = PowerRef{Entity: x.powerOnDevice(prefs.solar[0])}
+		e.SolarToday = x.dailyOf(prefs.solar...)
+	}
+	if len(prefs.water) > 0 {
+		e.WaterToday = x.dailyOf(prefs.water...)
+	}
 	var powers, energies []ent
 	for _, s := range x.live("sensor") {
 		switch s.class {
@@ -440,45 +449,49 @@ func (x *index) autoEnergy() EnergyMapping {
 		}
 		return ""
 	}
-	e.SolarPower = PowerRef{Entity: named(powers, []string{"solar", "pv_power", "production"})}
+	if e.SolarPower.Entity == "" {
+		e.SolarPower = PowerRef{Entity: named(powers, []string{"solar", "pv_power", "production"})}
+	}
 	if load := named(powers, []string{"consumption", "house_power", "home_power", "load_power", "main_panel", "total_power"}, "solar", "production", "grid", "battery"); load != "" {
 		e.LoadPower = []PowerRef{{Entity: load}}
 	}
-	e.SolarToday = named(energies, []string{"solar", "production"})
+	if e.SolarToday == "" {
+		e.SolarToday = named(energies, []string{"solar", "production"})
+	}
 	if used := named(energies, []string{"consumption", "house", "home", "main_panel"}, "solar", "production"); used != "" {
 		e.UsedToday = Entities{used}
 	}
-	// Consumers: the circuits drawing the most right now, a dozen of them; the totals above are not consumers.
+	// Consumers: the devices the Energy dashboard tracks, each by the power sensor on its device, in the
+	// dashboard's order. Without it, the power sensors placed in a room, by name, a dozen at most. Never by what
+	// draws most right now: the screen must not change with the moment the house is built.
 	taken := set(e.SolarPower.Entity)
 	for _, ref := range e.LoadPower {
 		taken[ref.Entity] = true
 	}
-	type drawing struct {
-		id string
-		w  float64
-	}
-	var ds []drawing
-	for _, s := range powers {
-		if taken[s.id] {
-			continue
-		}
-		w, ok := parseFloat(x.d.States[s.id].State)
-		if !ok {
-			continue
-		}
-		if strings.EqualFold(x.d.States[s.id].str("unit_of_measurement"), "kW") {
-			w *= 1000
-		}
-		if w > 0 {
-			ds = append(ds, drawing{s.id, w})
+	add := func(id string) {
+		if id != "" && !taken[id] {
+			taken[id] = true
+			e.Consumers = append(e.Consumers, id)
 		}
 	}
-	sort.SliceStable(ds, func(i, j int) bool { return ds[i].w > ds[j].w })
-	for i, d := range ds {
-		if i == 12 {
-			break
+	if len(prefs.consumers) > 0 {
+		for _, c := range prefs.consumers {
+			add(x.powerOnDevice(c))
 		}
-		e.Consumers = append(e.Consumers, d.id)
+	} else {
+		var placed []ent
+		for _, s := range powers {
+			if x.pickable(s) && firstOf(s.area, x.deviceArea[s.device]) != "" && !taken[s.id] {
+				placed = append(placed, s)
+			}
+		}
+		sort.SliceStable(placed, func(i, j int) bool { return strings.ToLower(placed[i].name) < strings.ToLower(placed[j].name) })
+		for i, s := range placed {
+			if i == 12 {
+				break
+			}
+			add(s.id)
+		}
 	}
 	for _, s := range x.all("sensor") {
 		if !x.pickable(s) {
@@ -550,6 +563,125 @@ func (x *index) accessFor(button string) string {
 	for _, e := range x.ents {
 		if e.device == b.device && e.domain == "event" && strings.Contains(e.id, "access") && !strings.Contains(e.id, "doorbell") {
 			return e.id
+		}
+	}
+	return ""
+}
+
+// energyPrefs is what the Energy dashboard names: each source's meters and the devices it tracks.
+type energyPrefs struct{ solar, gridFrom, gridTo, battery, gas, water, consumers []string }
+
+func energyPrefsOf(p map[string]any) energyPrefs {
+	var out energyPrefs
+	if p == nil {
+		return out
+	}
+	stat := func(m map[string]any, key string) string { v, _ := m[key].(string); return v }
+	for _, src := range anyObjects(p["energy_sources"]) {
+		switch stat(src, "type") {
+		case "solar":
+			out.solar = appendNonEmpty(out.solar, stat(src, "stat_energy_from"))
+		case "battery":
+			out.battery = appendNonEmpty(out.battery, stat(src, "stat_energy_from"))
+		case "gas":
+			out.gas = appendNonEmpty(out.gas, stat(src, "stat_energy_from"))
+		case "water":
+			out.water = appendNonEmpty(out.water, stat(src, "stat_energy_from"))
+		case "grid":
+			for _, f := range anyObjects(src["flow_from"]) {
+				out.gridFrom = appendNonEmpty(out.gridFrom, stat(f, "stat_energy_from"))
+			}
+			for _, f := range anyObjects(src["flow_to"]) {
+				out.gridTo = appendNonEmpty(out.gridTo, stat(f, "stat_energy_to"))
+			}
+		}
+	}
+	for _, c := range anyObjects(p["device_consumption"]) {
+		out.consumers = appendNonEmpty(out.consumers, stat(c, "stat_consumption"))
+	}
+	return out
+}
+
+func anyObjects(v any) []map[string]any {
+	list, _ := v.([]any)
+	var out []map[string]any
+	for _, x := range list {
+		if m, ok := x.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func appendNonEmpty(list []string, s string) []string {
+	if s == "" || !strings.Contains(s, ".") { // an external statistic (domain:name) has no entity to show
+		return list
+	}
+	return append(list, s)
+}
+
+// powerOnDevice is the power sensor beside a meter: the meter itself when it measures power, the only power
+// sensor on the meter's device, or of several the one whose id shares the most words with the meter's
+// (envoy_lifetime_energy_production → envoy_current_power_production, not …_consumption). "" when there is none,
+// or when several tie: then the caller falls back to its other ways.
+func (x *index) powerOnDevice(meter string) string {
+	m, ok := x.byID[meter]
+	if !ok {
+		return ""
+	}
+	if m.domain == "sensor" && m.class == "power" {
+		return m.id
+	}
+	if m.device == "" {
+		return ""
+	}
+	words := func(id string) map[string]bool {
+		out := map[string]bool{}
+		for _, w := range strings.FieldsFunc(id[strings.Index(id, ".")+1:], func(r rune) bool { return r == '_' }) {
+			out[w] = true
+		}
+		return out
+	}
+	mine := words(meter)
+	best, bestScore, tie := "", -1, false
+	for _, e := range x.ents {
+		if e.device != m.device || e.domain != "sensor" || e.class != "power" || !x.pickable(e) || x.ghost[e.id] {
+			continue
+		}
+		score := 0
+		for w := range words(e.id) {
+			if mine[w] {
+				score++
+			}
+		}
+		switch {
+		case score > bestScore:
+			best, bestScore, tie = e.id, score, false
+		case score == bestScore:
+			tie = true
+		}
+	}
+	if tie {
+		return ""
+	}
+	return best
+}
+
+// dailyOf is a utility meter that resets each day and counts one of these meters (its source attribute names it):
+// what the apps show as "today". "" when there is none.
+func (x *index) dailyOf(meters ...string) string {
+	for _, e := range x.ents {
+		if e.domain != "sensor" || e.platform != "utility_meter" {
+			continue
+		}
+		st := x.d.States[e.id]
+		if st == nil || st.str("meter_period") != "daily" {
+			continue
+		}
+		for _, m := range meters {
+			if st.str("source") == m {
+				return e.id
+			}
 		}
 	}
 	return ""

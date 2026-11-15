@@ -3,6 +3,11 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.62
+
+- The house no longer changes with the moment it is built: a television that is off keeps its remote's volume and inputs (from the features it declares), and a temperature sensor with no reading at start stays in its room. A test builds each test house with everything off and unavailable and requires the same result.
+- Energy follows the Energy dashboard when it is set up: the solar power and the day's solar and water come from the meters it names, in any language, and the consumers are the devices it tracks, in its order, rather than whatever drew most at the time.
+
 ## 0.9.61
 
 - The configuration and the Tailscale sign-in link are shown to the owner and administrators only.

@@ -712,7 +712,7 @@ func isRoomTemperature(s *State) bool {
 	}
 	v, ok := parseFloat(s.State)
 	if !ok {
-		return false
+		return true // no reading now (unavailable at start): taken as a room's, so the room does not change with it
 	}
 	if strings.Contains(s.str("unit_of_measurement"), "F") {
 		return 50 <= v && v <= 95
