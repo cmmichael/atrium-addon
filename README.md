@@ -33,4 +33,4 @@ Tailscale admin console (or the next install is named `atrium-1`), and delete th
 it fresh too. Then press the button above again.
 
 Published from the Domiel repository by `tools/publish-addon.sh`; the source of truth is there. Current version:
-**0.9.68** (atrium@704d159).
+**0.9.69** (atrium@1833c39).

@@ -133,12 +133,12 @@ func (g *Gateway) serveHistoryMCP(w http.ResponseWriter, r *http.Request, peer s
 			"protocolVersion": mcpProtocol,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "atrium-history", "version": version},
-			"instructions":    "The home's history from Home Assistant's recorder, for questions about the past: when something last changed, what happened over a day, how long something was on, daily totals. Only entities exposed to Assist. Name the entity as people do (\"front door\", \"kitchen lights\").",
+			"instructions":    "The home's history from Home Assistant's recorder, for questions about the past: when something last changed, what happened over a day, how long something was on, daily totals. Also media_select_input, to change a receiver's or TV's input, which Assist's own tools cannot. Only entities exposed to Assist. Name the entity as people do (\"front door\", \"kitchen lights\").",
 		}
 	case "ping":
 		out["result"] = map[string]any{}
 	case "tools/list":
-		out["result"] = map[string]any{"tools": historyTools}
+		out["result"] = map[string]any{"tools": append(append([]map[string]any{}, historyTools...), inputTools...)}
 	case "tools/call":
 		var p struct {
 			Name      string         `json:"name"`
@@ -195,6 +195,9 @@ func (g *Gateway) historyTool(ctx context.Context, name string, args map[string]
 		return "", fmt.Errorf("Home Assistant did not answer: %v", err)
 	}
 	str := func(k string) string { s, _ := args[k].(string); return strings.TrimSpace(s) }
+	if name == "media_select_input" {
+		return g.selectInput(ctx, ix, str("player"), str("input"))
+	}
 	if name == "history_find" {
 		found := ix.find(str("query"), 15)
 		if len(found) == 0 {

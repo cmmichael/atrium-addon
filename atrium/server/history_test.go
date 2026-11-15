@@ -195,11 +195,11 @@ func TestHistoryEndpointAnswersOnlyHomeAssistantWithTheToken(t *testing.T) {
 	}
 	code, out := call(good, "172.30.32.1", list)
 	tools, _ := out["result"].(map[string]any)["tools"].([]any)
-	if code != 200 || len(tools) != len(historyTools) {
+	if code != 200 || len(tools) != len(historyTools)+len(inputTools) {
 		t.Fatalf("tools/list: %d %v", code, out)
 	}
 	for _, tool := range tools {
-		if name := tool.(map[string]any)["name"].(string); !strings.HasPrefix(name, "history_") {
+		if name := tool.(map[string]any)["name"].(string); !strings.HasPrefix(name, "history_") && name != "media_select_input" {
 			t.Errorf("a tool that is not history's: %s", name)
 		}
 	}

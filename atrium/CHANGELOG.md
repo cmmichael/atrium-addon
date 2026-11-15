@@ -3,6 +3,10 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.69
+
+- AI Assist can change a receiver's or TV's input ("set the receiver to video"), which Home Assistant's own Assist tools cannot. The tool comes with the history tools, so a connected agent has it with no further setup. Where the layout gives a remote its own inputs (a script or a matrix choice for each), those are used; otherwise the player's own source list. Only media players exposed to Assist, only inputs that exist; a name that fits two inputs, or none, is answered with the list instead of a guess. A player that is off is turned on first. Each change is logged.
+
 ## 0.9.68
 
 - Atrium is now called Domiel, in Home Assistant, on the web and in the app. Only the name changed: the add-on, its settings, its layout file (atrium.yaml) and its tailnet address (atrium) stay as they are, so nothing needs doing.

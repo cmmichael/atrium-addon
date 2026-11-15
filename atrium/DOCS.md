@@ -254,6 +254,11 @@ The same page changes the agent's model, options and prompt, and keeps each prom
 The tools only read the recorder: when something last changed, its changes over a day, how long it was in a state,
 and daily totals. They answer only about entities exposed to Assist, and only to Home Assistant itself.
 
+The same tool set changes a receiver's or TV's input ("set the receiver to video"), which Assist's own tools cannot.
+It uses the inputs the layout gives the remote (`remotes[].inputs` options, each a script or a choice), and otherwise
+the player's own source list. Name an option the way people say it; "PS5 (Video)" answers to both words. Only media
+players exposed to Assist; an input that does not exist, or a word that fits two, gets the list back, not a guess.
+
 ### Memory and dreaming
 
 To have the assistant remember things between conversations, make a to-do list called **AI Memory** (Settings →
