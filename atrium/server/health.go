@@ -42,6 +42,9 @@ type healthReport struct {
 		// slow path (a mobile network, a relay), not the add-on.
 		HandshakesDied int64      `json:"handshakesDied"`
 		LastDied       *time.Time `json:"lastDied,omitempty"`
+		// The last check that online devices answer a ping (every two minutes): answered 0 of several tried means
+		// the add-on is not reachable though the state says up.
+		Reach *reachResult `json:"reach,omitempty"`
 	} `json:"tailnet"`
 	Mapping struct {
 		Exists   bool       `json:"exists"`
@@ -89,6 +92,9 @@ func (g *Gateway) serveHealth(w http.ResponseWriter, r *http.Request, id Identit
 	h.Tailnet.State, h.Tailnet.Address, h.Tailnet.Owner = g.setup.State, g.setup.Address, g.Owner
 	h.Apps.Open = int64(g.open.Load())
 	h.Tailnet.HandshakesDied = g.tls.died.Load()
+	g.reach.mu.Lock()
+	h.Tailnet.Reach = g.reach.last
+	g.reach.mu.Unlock()
 	if last := g.tls.last.Load(); last > 0 {
 		t := time.Unix(last, 0)
 		h.Tailnet.LastDied = &t

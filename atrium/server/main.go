@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.59"
+const version = "0.9.60"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -104,6 +104,7 @@ type Upstream struct {
 
 type Gateway struct {
 	history          historyCache
+	reach            reachState           // the last tailnet reachability check (reachcheck.go)
 	HistoryTokenPath string               // the history endpoint's secret is kept here (/data/history-token)
 	isCore           func(ip string) bool // tests: whether a peer is Home Assistant itself
 	pings            [2]time.Duration     // how often an app socket is pinged and how long it may take to answer; zero: the defaults
@@ -1204,6 +1205,7 @@ func main() {
 		log.Fatalf("Tailscale: %v", err)
 	}
 	g.paths = lc
+	go g.watchReach(lc, lc, 30*time.Second, 2*time.Minute)
 	// While Up waits for the sign-in, the panel shows the link: the state is read every second until it is Running.
 	joined := make(chan struct{})
 	go func() {

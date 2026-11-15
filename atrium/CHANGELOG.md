@@ -3,6 +3,10 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.60
+
+- Health tests the tailnet instead of trusting its state: every two minutes the add-on pings up to three online devices and reports how many answered (tailnet.reach). The log says when none answers, and when they do again.
+
 ## 0.9.59
 
 - The Supervisor, its services and backups are refused over the WebSocket and the API, not only at /api/hassio.
