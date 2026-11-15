@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -38,6 +39,8 @@ type dreamResult struct {
 	After     []string  `json:"after,omitempty"`
 	Added     int       `json:"added"`
 	Removed   int       `json:"removed"`
+	Refused   []string  `json:"refused,omitempty"` // new facts not added, with why: events, states, notes, past the night's cap
+	LeftOut   []string  `json:"leftOut,omitempty"` // what the model said it chose not to keep
 	Applied   bool      `json:"applied"`
 	Note      string    `json:"note,omitempty"` // why nothing was done, or what went wrong
 }
@@ -157,13 +160,16 @@ func (g *Gateway) dream(ctx context.Context, dry bool) dreamResult {
 		res.Before = append(res.Before, it.Summary)
 	}
 	loc := g.homeZone(ctx)
-	facts, err := g.consolidate(ctx, task, dreamInstructions(res.Before, day, time.Now().In(loc)))
+	now := time.Now().In(loc)
+	facts, leftOut, err := g.consolidate(ctx, task, dreamInstructions(res.Before, day, now))
 	if err != nil {
 		res.Note = "the AI task did not answer: " + err.Error()
 		return res
 	}
-	add, remove, ok, why := planDream(items, facts)
-	res.After, res.Added, res.Removed = facts, len(add), len(remove)
+	res.LeftOut = leftOut
+	add, remove, refused, ok, why := planDream(items, facts, now)
+	res.Refused = refused
+	res.After, res.Added, res.Removed = afterPlan(items, add, remove), len(add), len(remove)
 	if !ok {
 		res.Note = why
 		return res
@@ -182,8 +188,9 @@ func (g *Gateway) dream(ctx context.Context, dry bool) dreamResult {
 }
 
 // planDream works out the changes that bring the list to the facts: items not among them go, facts not yet on the
-// list are added. Not ok when the answer would empty a list or drop most of a list of any size.
-func planDream(items []memItem, facts []string) (add []string, remove []memItem, ok bool, why string) {
+// list are added if they look like facts (factShape), a few a night (fewer on a first night). Not ok when the answer
+// would empty a list or drop most of a list of any size.
+func planDream(items []memItem, facts []string, now time.Time) (add []string, remove []memItem, refused []string, ok bool, why string) {
 	want := map[string]bool{}
 	var clean []string
 	for _, f := range facts {
@@ -202,36 +209,113 @@ func planDream(items []memItem, facts []string) (add []string, remove []memItem,
 		}
 		have[k] = true
 	}
+	limit := maxNewFacts
+	if len(items) == 0 {
+		limit = maxFirstFacts
+	}
 	for _, f := range clean {
-		if !have[strings.ToLower(f)] {
+		if have[strings.ToLower(f)] {
+			continue
+		}
+		switch bad := factShape(f, now); {
+		case bad != "":
+			refused = append(refused, f+" ("+bad+")")
+		case len(add) >= limit:
+			refused = append(refused, f+" (more than "+fmt.Sprint(limit)+" new in one night)")
+		default:
 			add = append(add, f)
 		}
 	}
-	if len(items) > 0 && len(clean) == 0 {
-		return nil, nil, false, "the answer would empty the memory; left as it is"
+	kept := len(clean) - len(refused)
+	if len(items) > 0 && kept <= 0 {
+		return nil, nil, refused, false, "the answer would empty the memory; left as it is"
 	}
-	if len(items) >= 6 && len(clean) < len(items)/2 {
-		return nil, nil, false, fmt.Sprintf("the answer would cut %d memories to %d; left as it is", len(items), len(clean))
+	if len(items) >= 6 && kept < len(items)/2 {
+		return nil, nil, refused, false, fmt.Sprintf("the answer would cut %d memories to %d; left as it is", len(items), kept)
 	}
-	return add, remove, true, ""
+	return add, remove, refused, true, ""
+}
+
+// afterPlan is the list as it will be: what stays, then what is added.
+func afterPlan(items []memItem, add []string, remove []memItem) []string {
+	gone := map[string]bool{}
+	for _, it := range remove {
+		gone[it.UID] = true
+	}
+	var out []string
+	for _, it := range items {
+		if !gone[it.UID] {
+			out = append(out, it.Summary)
+		}
+	}
+	return append(out, add...)
+}
+
+const (
+	maxNewFacts   = 5 // a night
+	maxFirstFacts = 3 // a first night, from an empty list
+)
+
+var (
+	clockTime  = regexp.MustCompile(`(?i)\b\d{1,2}[:.]\d{2}\b|\b\d{1,2} ?[ap]\.?m\b`)
+	dayMonth   = regexp.MustCompile(`(?i)\b(\d{1,2}) (January|February|March|April|May|June|July|August|September|October|November|December)(?: (\d{4}))?\b`)
+	nowWords   = regexp.MustCompile(`(?i)\b(today|tonight|yesterday|this morning|this evening|right now|currently|at the moment)\b`)
+	noteWords  = regexp.MustCompile(`(?i)\b(not kept|not a fact|not remembered|not stored|not saved|live state|one-off|is not kept)\b`)
+	twoClauses = regexp.MustCompile(`[.!?] +\p{Lu}`)
+)
+
+// factShape says why a new fact does not look like one, or "" when it does: one sentence, no note about keeping it,
+// no moment (a clock time on a date, a date that has passed, "today"), and short. The instructions ask for the same;
+// this keeps a slip out of the list.
+func factShape(f string, now time.Time) string {
+	switch {
+	case len([]rune(f)) > 200:
+		return "too long"
+	case twoClauses.MatchString(f):
+		return "more than one sentence"
+	case noteWords.MatchString(f):
+		return "a note about keeping it"
+	case nowWords.MatchString(f):
+		return "about a moment"
+	}
+	if m := dayMonth.FindStringSubmatch(f); m != nil {
+		if clockTime.MatchString(f) {
+			return "an event: a date and a time"
+		}
+		year := now.Year()
+		if m[3] != "" {
+			fmt.Sscan(m[3], &year)
+		}
+		if d, err := time.ParseInLocation("2 January 2006", m[1]+" "+m[2]+" "+fmt.Sprint(year), now.Location()); err == nil {
+			today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+			if d.Before(today) && !(m[3] == "" && today.Sub(d) > 300*24*time.Hour) { // a date with no year may be next year's
+				return "an event: its date has passed"
+			}
+		}
+	}
+	return ""
 }
 
 func dreamInstructions(memory []string, day []assistTurn, now time.Time) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, `You keep the long-term memory of a home's AI assistant. Today is %s.
-Below are the facts it remembers now, and the household's conversations with it since the last time this was done.
-Return the memory as it should be from now on:
+	fmt.Fprintf(&b, `You keep the long-term memory of a home's AI assistant. It is now %s.
+Below are the facts it remembers now, and the household's conversations with it since the last time this was done,
+each marked with the day and time it happened. Return the memory as it should be from now on:
 - keep facts that are still true and useful; merge duplicates and near-duplicates into one;
 - update a fact the conversations changed; remove a fact that is no longer true, or whose date has passed;
+- remove a remembered "fact" that is really an event or a state (see below);
 - add durable facts the household stated or asked to be remembered: preferences, names they use for things,
-  routines, plans with their dates (write dates out, e.g. "until Sunday 22 November");
-- do not add device states, readings, one-off questions or anything the home's sensors already report;
+  who lives there, routines, plans with their dates (write dates out, e.g. "until Sunday 22 November");
+- never facts: events that happened (someone arrived or left, a scene or music was started, something was asked or
+  turned on), device states and readings, and anything the home's sensors already report. List those under
+  left_out instead, never under facts;
+- when a conversation mentions a day, take it from the day that conversation happened, not from today;
+- write each fact as the fact alone: never add a note about whether or why it is kept;
 - never invent anything; when unsure, keep an existing fact as it is;
-- each fact is one short sentence; at most 60 facts.
-Also say how many of the existing facts you removed or merged ("dropped").
+- each fact is one short sentence; add at most %d new facts; at most 60 facts in all.
 
 Facts remembered now:
-`, now.Format("Monday 2 January 2006, 15:04"))
+`, now.Format("Monday 2 January 2006, 15:04"), maxNewFacts)
 	if len(memory) == 0 {
 		b.WriteString("(none)\n")
 	}
@@ -240,7 +324,7 @@ Facts remembered now:
 	}
 	b.WriteString("\nConversations, oldest first:\n")
 	for _, t := range day {
-		fmt.Fprintf(&b, "[%s] Asked: %s\n  Answered: %s\n", t.Time.In(now.Location()).Format("Mon 15:04"), clip(t.Question, 400), clip(t.Answer, 400))
+		fmt.Fprintf(&b, "[%s] Asked: %s\n  Answered: %s\n", t.Time.In(now.Location()).Format("Monday 2 January 15:04"), clip(t.Question, 400), clip(t.Answer, 400))
 	}
 	return b.String()
 }
@@ -299,33 +383,35 @@ func (g *Gateway) memoryItems(ctx context.Context, list string) ([]memItem, erro
 	return out.Response[list].Items, nil
 }
 
-func (g *Gateway) consolidate(ctx context.Context, task, instructions string) ([]string, error) {
-	res, errs, err := g.wsBatch(ctx, []map[string]any{{"type": "call_service", "domain": "ai_task", "service": "generate_data", "return_response": true,
+func (g *Gateway) consolidate(ctx context.Context, task, instructions string) (facts, leftOut []string, err error) {
+	res, errs, err2 := g.wsBatch(ctx, []map[string]any{{"type": "call_service", "domain": "ai_task", "service": "generate_data", "return_response": true,
 		"service_data": map[string]any{
 			"entity_id": task, "task_name": "Consolidate AI Assist's memory", "instructions": instructions,
 			"structure": map[string]any{
-				"facts":   map[string]any{"description": "The memory from now on, one short sentence each", "required": true, "selector": map[string]any{"text": map[string]any{"multiple": true}}},
-				"dropped": map[string]any{"description": "How many existing facts were removed or merged", "selector": map[string]any{"number": map[string]any{}}},
+				"facts":    map[string]any{"description": "The memory from now on: durable facts only, one short sentence each", "required": true, "selector": map[string]any{"text": map[string]any{"multiple": true}}},
+				"left_out": map[string]any{"description": "Events, states and one-off requests from the conversations that are not kept, a few words each", "selector": map[string]any{"text": map[string]any{"multiple": true}}},
+				"dropped":  map[string]any{"description": "How many existing facts were removed or merged", "selector": map[string]any{"number": map[string]any{}}},
 			},
 		}}})
-	if err != nil {
-		return nil, err
+	if err2 != nil {
+		return nil, nil, err2
 	}
 	if errs[0] != nil {
-		return nil, errs[0]
+		return nil, nil, errs[0]
 	}
 	var out struct {
 		Response struct {
 			Data struct {
-				Facts []string `json:"facts"`
+				Facts   []string `json:"facts"`
+				LeftOut []string `json:"left_out"`
 			} `json:"data"`
 		} `json:"response"`
 	}
 	data, _ := json.Marshal(res[0])
 	if err := json.Unmarshal(data, &out); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return out.Response.Data.Facts, nil
+	return out.Response.Data.Facts, out.Response.Data.LeftOut, nil
 }
 
 func (g *Gateway) applyMemory(ctx context.Context, list string, add []string, remove []memItem) error {
@@ -356,7 +442,11 @@ func (r dreamResult) line() string {
 	if !r.Applied {
 		return fmt.Sprintf("dreaming: %d question(s), memory unchanged: %s", r.Questions, r.Note)
 	}
-	return fmt.Sprintf("dreaming: %d question(s), memory %d → %d (%d added, %d removed)", r.Questions, len(r.Before), len(r.After), r.Added, r.Removed)
+	refused := ""
+	if len(r.Refused) > 0 {
+		refused = fmt.Sprintf(", %d refused", len(r.Refused))
+	}
+	return fmt.Sprintf("dreaming: %d question(s), memory %d → %d (%d added, %d removed%s)", r.Questions, len(r.Before), len(r.After), r.Added, r.Removed, refused)
 }
 
 func (d *dreamer) load() {

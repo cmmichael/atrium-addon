@@ -3,6 +3,10 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.67
+
+- AI Assist's nightly memory keeps to durable facts. The model is told the day each conversation happened, that events and current states are never facts, and has a separate place for what it leaves out. A new fact that reads like an event (a past date, a date with a time, "today"), runs to two sentences or carries a note about keeping it is refused, and at most five are added a night (three on a first night). The night's line in the log counts what was refused; /data/memory keeps the list.
+
 ## 0.9.66
 
 - AI Assist settings: a form left open (the page closed, or another form started) is given up in Home Assistant too, where it would linger until a restart; the kept prompts stop at the last fifty; with recommended settings ticked, the page says the integration then chooses the model.
