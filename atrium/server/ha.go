@@ -290,6 +290,7 @@ func (g *Gateway) houseJSON(ctx context.Context) (built, error) {
 			return built{}, err
 		}
 		h, problems := house.Render(mapping, d, cfg)
+		sort.Strings(problems) // a stable order: some come from maps, and a reordering is not a change to log again
 		h.BuiltAt = time.Now().UTC().Format(time.RFC3339)
 		stale := house.Stale(d)
 		unavailable := unavailableIn(h, d.States)

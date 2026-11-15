@@ -15,7 +15,7 @@ func TestTheEnergyDashboardNamesTheMeters(t *testing.T) {
 		reg("sensor.waschmaschine_verbrauch", "wm", "shelly"), reg("sensor.waschmaschine_leistung", "wm", "shelly"),
 		reg("sensor.spuelmaschine_verbrauch", "spuel", "shelly"), reg("sensor.spuelmaschine_leistung", "spuel", "shelly"),
 		reg("sensor.wasserzaehler", "wasser", "zha"),
-		reg("sensor.ertrag_heute", "", "utility_meter"), reg("sensor.wasser_heute", "", "utility_meter"),
+		reg("sensor.ertrag_heute", "", "utility_meter"), reg("sensor.wasser_heute", "wasser", "utility_meter"),
 		reg("sensor.ertrag_monat", "", "utility_meter"),
 	)
 	st := func(id, state, attrs string) {
@@ -31,7 +31,8 @@ func TestTheEnergyDashboardNamesTheMeters(t *testing.T) {
 	st("sensor.wasserzaehler", "812.3", `{"device_class":"water","unit_of_measurement":"m³"}`)
 	st("sensor.ertrag_heute", "3.2", `{"device_class":"energy","unit_of_measurement":"kWh","source":"sensor.wechselrichter_ertrag_gesamt","meter_period":"daily"}`)
 	st("sensor.ertrag_monat", "80.2", `{"device_class":"energy","unit_of_measurement":"kWh","source":"sensor.wechselrichter_ertrag_gesamt","meter_period":"monthly"}`)
-	st("sensor.wasser_heute", "0.21", `{"device_class":"water","unit_of_measurement":"m³","source":"sensor.wasserzaehler","meter_period":"daily"}`)
+	// As Home Assistant 2026.11 has it: no source or period, only the resets; on the meter's device.
+	st("sensor.wasser_heute", "0.21", `{"device_class":"water","unit_of_measurement":"m³","last_reset":"2026-11-14T00:00:00-08:00","next_reset":"2026-11-15T00:00:00-08:00"}`)
 	d.EnergyPrefs = j(`{"energy_sources":[{"type":"solar","stat_energy_from":"sensor.wechselrichter_ertrag_gesamt"},
 		{"type":"water","stat_energy_from":"sensor.wasserzaehler"},{"type":"grid","flow_from":[{"stat_energy_from":"netz:bezug"}],"flow_to":[]}],
 		"device_consumption":[{"stat_consumption":"sensor.waschmaschine_verbrauch"},{"stat_consumption":"sensor.spuelmaschine_verbrauch"},{"stat_consumption":"sensor.gone"}]}`).(map[string]any)

@@ -112,3 +112,15 @@ func TestAWidgetItemMustBeAKnownForm(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// Names in any script make ids: letters and digits are kept, and two names that differ stay apart.
+func TestIDsFromNamesInAnyScript(t *testing.T) {
+	for name, want := range map[string]string{"Living Room": "living_room", "Küche Licht": "küche_licht", "客厅": "客厅", "Гостиная": "гостиная", "Salle à manger": "salle_à_manger"} {
+		if got := slugOf(name); got != want {
+			t.Errorf("slugOf(%q) = %q, want %q", name, got, want)
+		}
+	}
+	if a, b := slugOf("★"), slugOf("☆"); a == "" || a == b {
+		t.Errorf("symbol-only names: %q and %q", a, b)
+	}
+}

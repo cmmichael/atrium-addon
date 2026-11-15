@@ -3,6 +3,13 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.63
+
+- Speakers by what each player declares: speakers, and receivers that play media; in a home with neither, players placed in a room that play media at a volume (Kodi, Plex, a Chromecast). Music Assistant's players stay unless they mirror a speaker already listed.
+- The day's solar and water from a daily utility meter on the Energy dashboard meter's device, as Home Assistant 2026.11 places them.
+- Names in any script make ids (Küche, 客厅, Гостиная); symbol-only names get a short hash.
+- Layout problems are logged once when they change, not again whenever their order did.
+
 ## 0.9.62
 
 - The house no longer changes with the moment it is built: a television that is off keeps its remote's volume and inputs (from the features it declares), and a temperature sensor with no reading at start stays in its room. A test builds each test house with everything off and unavailable and requires the same result.

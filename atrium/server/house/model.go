@@ -286,7 +286,9 @@ func (s *State) str(key string) string {
 // Media player features (MediaPlayerEntityFeature), declared whatever the player's state.
 const (
 	featureVolumeSet    = 4
+	featurePlayMedia    = 512
 	featureSelectSource = 2048
+	featurePlay         = 16384
 )
 
 // supports says whether the entity declares a feature in supported_features.

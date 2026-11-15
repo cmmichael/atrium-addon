@@ -3,6 +3,7 @@ package house
 import (
 	"sort"
 	"strings"
+	"time"
 )
 
 // The judgment calls the add-on makes by itself, from what Home Assistant has, so every screen has something
@@ -215,19 +216,61 @@ func newIndex(d Dump, music *MusicMapping) *index {
 		}
 		return x
 	}
-	var all, own []string
+	// By what each player declares: a speaker; a receiver that plays media (an AV receiver, a soundbar); and only
+	// in a home with neither, a player of no class placed in a room that plays media at a volume (Kodi, Plex, a
+	// Chromecast) rather than no music at all. Never a kiosk's, a camera's or doorbell's own speaker.
+	plays := func(e ent) bool {
+		st := x.d.States[e.id]
+		return st.supports(featurePlayMedia) || st.supports(featurePlay)
+	}
+	usable := func(e ent) bool { return !kiosks[e.platform] && !x.deviceHas[e.device]["camera"] }
+	var all []string
 	for _, e := range x.live("media_player") {
-		if e.class != "speaker" || kiosks[e.platform] || x.deviceHas[e.device]["camera"] {
+		if usable(e) && (e.class == "speaker" || (e.class == "receiver" && plays(e))) {
+			all = append(all, e.id)
+		}
+	}
+	if len(all) == 0 {
+		for _, e := range x.live("media_player") {
+			if usable(e) && e.class == "" && firstOf(e.area, x.deviceArea[e.device]) != "" && plays(e) && x.d.States[e.id].supports(featureVolumeSet) {
+				all = append(all, e.id)
+			}
+		}
+	}
+	// Music Assistant's players: kept, less those that mirror a player listed already (on the same device, or by
+	// the same name in the same room). Dropping them all whenever another speaker existed lost the players only
+	// Music Assistant knows (AirPlay and Snapcast ones, say).
+	own := map[string]bool{}
+	ownAreas := map[string][]string{} // a listed player's name → the rooms it is in
+	for _, id := range all {
+		if e := x.byID[id]; e.platform != "music_assistant" {
+			if e.device != "" {
+				own[e.device] = true
+			}
+			n := strings.ToLower(e.name)
+			ownAreas[n] = append(ownAreas[n], firstOf(e.area, x.deviceArea[e.device]))
+		}
+	}
+	mirrors := func(e ent) bool {
+		if e.device != "" && own[e.device] {
+			return true
+		}
+		area := firstOf(e.area, x.deviceArea[e.device])
+		for _, a := range ownAreas[strings.ToLower(e.name)] {
+			if a == "" || area == "" || a == area { // Music Assistant's own device is often in no room
+				return true
+			}
+		}
+		return false
+	}
+	kept := all[:0]
+	for _, id := range all {
+		if e := x.byID[id]; e.platform == "music_assistant" && mirrors(e) {
 			continue
 		}
-		all = append(all, e.id)
-		if e.platform != "music_assistant" {
-			own = append(own, e.id)
-		}
+		kept = append(kept, id)
 	}
-	if len(own) > 0 {
-		all = own
-	}
+	all = kept
 	for _, id := range all {
 		x.isSpeaker[id] = true
 	}
@@ -667,21 +710,40 @@ func (x *index) powerOnDevice(meter string) string {
 	return best
 }
 
-// dailyOf is a utility meter that resets each day and counts one of these meters (its source attribute names it):
-// what the apps show as "today". "" when there is none.
+// dailyOf is a utility meter that resets each day and counts one of these meters: what the apps show as
+// "today". Daily: meter_period says so (older Home Assistant), or its next reset is a day after its last. Counting
+// the meter: its source attribute names it (older Home Assistant), or it sits on the meter's device, where Home
+// Assistant puts a helper made from an entity. "" when there is none, or several on the device.
 func (x *index) dailyOf(meters ...string) string {
-	for _, e := range x.ents {
-		if e.domain != "sensor" || e.platform != "utility_meter" {
-			continue
+	daily := func(st *State) bool {
+		if st.str("meter_period") == "daily" {
+			return true
 		}
-		st := x.d.States[e.id]
-		if st == nil || st.str("meter_period") != "daily" {
-			continue
-		}
-		for _, m := range meters {
+		last, err1 := time.Parse(time.RFC3339Nano, st.str("last_reset"))
+		next, err2 := time.Parse(time.RFC3339Nano, st.str("next_reset"))
+		gap := next.Sub(last)
+		return err1 == nil && err2 == nil && gap >= 23*time.Hour && gap <= 25*time.Hour
+	}
+	for _, m := range meters {
+		dev := x.byID[m].device
+		found, onDevice := "", 0
+		for _, e := range x.ents {
+			if e.domain != "sensor" || e.platform != "utility_meter" { // other platforms' "source" means something else
+				continue
+			}
+			st := x.d.States[e.id]
+			if st == nil || !daily(st) {
+				continue
+			}
 			if st.str("source") == m {
 				return e.id
 			}
+			if dev != "" && e.device == dev {
+				found, onDevice = e.id, onDevice+1
+			}
+		}
+		if onDevice == 1 {
+			return found
 		}
 	}
 	return ""

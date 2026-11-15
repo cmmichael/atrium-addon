@@ -12,7 +12,7 @@ import (
 func TestTheHouseDoesNotChangeWithTheMoment(t *testing.T) {
 	declared := map[string]bool{"friendly_name": true, "device_class": true, "unit_of_measurement": true, "state_class": true,
 		"supported_features": true, "min_temp": true, "max_temp": true, "hvac_modes": true, "supported_color_modes": true,
-		"icon": true, "source": true, "meter_period": true, "options": true, "entity_picture": true, "restored": true}
+		"icon": true, "source": true, "meter_period": true, "last_reset": true, "next_reset": true, "options": true, "entity_picture": true, "restored": true}
 	moment := func(d Dump, state string) Dump {
 		out := d
 		out.States = map[string]*State{}

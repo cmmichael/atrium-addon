@@ -2,7 +2,9 @@ package house
 
 import (
 	"fmt"
+	"hash/fnv"
 	"strings"
+	"unicode"
 )
 
 // Widgets: what the phone's Home Screen and Lock Screen show of the house. The file names the items; the add-on
@@ -253,15 +255,24 @@ func readoutIcon(d Dump, id string) string {
 	return "gauge.with.dots.needle.33percent"
 }
 
+// slugOf makes an id from a name: lower-case letters and digits of any script, runs of anything else as one "_".
+// "Küche Licht" → "küche_licht", "客厅" → "客厅". A name with no letter or digit at all gets a short hash, so two
+// such names are not "listed twice".
 func slugOf(s string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(s) {
 		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
 			b.WriteRune(r)
 		case b.Len() > 0 && !strings.HasSuffix(b.String(), "_"):
 			b.WriteRune('_')
 		}
 	}
-	return strings.TrimSuffix(b.String(), "_")
+	out := strings.TrimSuffix(b.String(), "_")
+	if out == "" && s != "" {
+		h := fnv.New32a()
+		h.Write([]byte(s))
+		out = fmt.Sprintf("x%08x", h.Sum32())
+	}
+	return out
 }
