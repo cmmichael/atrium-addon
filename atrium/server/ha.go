@@ -437,6 +437,10 @@ func (g *Gateway) serveMapping(w http.ResponseWriter, r *http.Request, id Identi
 func (g *Gateway) serveConfig(w http.ResponseWriter, r *http.Request, id Identity) {
 	switch r.Method {
 	case "GET":
+		if !g.mayConfigure(id) {
+			http.Error(w, "only the owner and administrators may see the configuration", http.StatusForbidden)
+			return
+		}
 		g.mu.Lock()
 		cfg := g.config
 		g.mu.Unlock()

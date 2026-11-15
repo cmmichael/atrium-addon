@@ -257,10 +257,15 @@ func (g *Gateway) runDraft(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", errors.New("the add-on has no Python, so it cannot draft here; run skills/atrium-mapping/draft.py elsewhere")
 	}
+	if !g.drafting.TryLock() { // one at a time: each run reads every registry
+		return "", errors.New("a draft is already being made; try again in a minute")
+	}
+	defer g.drafting.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, python, "-I", script, "--url", g.Addon.Base.String())
-	cmd.Env = append(os.Environ(), "HA_TOKEN="+g.Addon.Token)
+	// Only what it needs: not the add-on's own environment, which holds the Supervisor's token.
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.TempDir(), "LANG=C.UTF-8", "HA_TOKEN=" + g.Addon.Token}
 	var out, errs bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errs
 	if err := cmd.Run(); err != nil {

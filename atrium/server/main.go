@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.60"
+const version = "0.9.61"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -105,6 +105,7 @@ type Upstream struct {
 type Gateway struct {
 	history          historyCache
 	reach            reachState           // the last tailnet reachability check (reachcheck.go)
+	drafting         sync.Mutex           // one atrium_draft at a time
 	HistoryTokenPath string               // the history endpoint's secret is kept here (/data/history-token)
 	isCore           func(ip string) bool // tests: whether a peer is Home Assistant itself
 	pings            [2]time.Duration     // how often an app socket is pinged and how long it may take to answer; zero: the defaults
@@ -606,6 +607,9 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		setup.Writers = append([]string{}, g.Opts.Writers...)
 		setup.Layout = g.layout()
 		g.mu.Unlock()
+		if id.Addon || !g.mayConfigure(id) {
+			setup.AuthURL = "" // the link signs this machine in to a tailnet: for the owner and administrators only
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		json.NewEncoder(w).Encode(setup)
@@ -1204,7 +1208,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Tailscale: %v", err)
 	}
-	g.paths = lc
+	g.mu.Lock()
+	g.paths = lc // read by every request's log line (tailpath.go)
+	g.mu.Unlock()
 	go g.watchReach(lc, lc, 30*time.Second, 2*time.Minute)
 	// While Up waits for the sign-in, the panel shows the link: the state is read every second until it is Running.
 	joined := make(chan struct{})

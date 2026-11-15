@@ -150,12 +150,21 @@ func (l *assistLog) newest(n int) ([]assistTurn, error) {
 	}
 	defer f.Close()
 	var all []assistTurn
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64<<10), assistTurnMax*2)
-	for sc.Scan() {
-		var t assistTurn
-		if json.Unmarshal(sc.Bytes(), &t) == nil {
-			all = append(all, t)
+	// Line by line with no cap on a line's length: a scanner stops at the first line over its buffer and every
+	// turn after it would be lost. A line that is not a turn is skipped.
+	rd := bufio.NewReader(f)
+	for {
+		line, err := rd.ReadBytes('\n')
+		if len(line) > 0 {
+			var t assistTurn
+			if json.Unmarshal(line, &t) == nil {
+				all = append(all, t)
+			}
+		}
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return nil, err
 		}
 	}
 	out := make([]assistTurn, 0, len(all))

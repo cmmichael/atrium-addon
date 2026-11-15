@@ -99,8 +99,19 @@ func (a *alerts) save() {
 		return
 	}
 	data, _ := json.MarshalIndent(a.devices, "", "  ")
-	os.WriteFile(a.path, data, 0o600)
+	// Whole or not at all: a write cut short (a full disk, a stop) must not leave half a list of phones.
+	tmp := a.path + ".new"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		log.Printf("alerts: could not keep the phones: %v", err)
+		return
+	}
+	if err := os.Rename(tmp, a.path); err != nil {
+		log.Printf("alerts: could not keep the phones: %v", err)
+	}
 }
+
+// Limits on what phones may register: enough for any household, not a way to fill the add-on's disk.
+const maxDevices, maxActivities, maxTokenLen = 100, 20, 512
 
 // register keeps a device's tokens: one record per login and device.
 func (a *alerts) register(id Identity, body struct {
@@ -121,7 +132,19 @@ func (a *alerts) register(id Identity, body struct {
 	}
 	if d == nil {
 		d = &pushDevice{Login: id.Login, Device: id.Device}
+		if len(a.devices) >= maxDevices { // the phone not heard from longest makes room
+			oldest := 0
+			for i, x := range a.devices {
+				if x.Seen.Before(a.devices[oldest].Seen) {
+					oldest = i
+				}
+			}
+			a.devices = append(a.devices[:oldest], a.devices[oldest+1:]...)
+		}
 		a.devices = append(a.devices, d)
+	}
+	if len(body.Token) > maxTokenLen || len(body.LiveStart) > maxTokenLen {
+		body.Token, body.LiveStart = "", ""
 	}
 	if body.Token != "" {
 		d.Token = body.Token
@@ -136,6 +159,9 @@ func (a *alerts) register(id Identity, body struct {
 		d.Env = body.Env
 	}
 	for alertID, token := range body.Activities {
+		if len(token) > maxTokenLen || len(alertID) > maxTokenLen || (len(d.Activities) >= maxActivities && d.Activities[alertID] == "") {
+			continue
+		}
 		if d.Activities == nil {
 			d.Activities = map[string]string{}
 		}

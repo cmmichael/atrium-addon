@@ -128,7 +128,7 @@ func (t *telemetry) take(id Identity, b telemetryBatch) {
 		if e.Build != "" && !strings.Contains(b.App, e.Build) {
 			app += ", written by " + e.Build
 		}
-		log.Printf("app %s (%s, %s, app %s) %s · %s", id.Login, firstNonEmpty(id.Device, b.Device), b.OS, app, e.Time.Local().Format("15:04:05"), strings.TrimSpace(line))
+		log.Printf("app %s (%s, %s, app %s) %s · %s", id.Login, oneLine(firstNonEmpty(id.Device, b.Device)), oneLine(b.OS), oneLine(app), e.Time.Local().Format("15:04:05"), oneLine(line))
 	}
 }
 
@@ -137,7 +137,9 @@ func (t *telemetry) all() []*telemetryDevice {
 	defer t.mu.Unlock()
 	out := make([]*telemetryDevice, 0, len(t.devices))
 	for _, d := range t.devices {
-		out = append(out, d)
+		c := *d // a copy: the caller reads it after the lock is gone, while new events arrive
+		c.Events = append([]telemetryEvent(nil), d.Events...)
+		out = append(out, &c)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Seen.After(out[j].Seen) })
 	return out
@@ -145,4 +147,18 @@ func (t *telemetry) all() []*telemetryDevice {
 
 func (d telemetryDevice) String() string {
 	return fmt.Sprintf("%s on %s (%s)", d.Login, d.Model, d.Device)
+}
+
+// oneLine keeps what an app sends to one log line: a newline in it could forge the next line of the log.
+func oneLine(s string) string {
+	s = strings.TrimSpace(s)
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\r':
+			return ' '
+		case r < 0x20 || r == 0x7f:
+			return -1
+		}
+		return r
+	}, s)
 }

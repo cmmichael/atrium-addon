@@ -50,12 +50,15 @@ func peerPath(st *ipnstate.Status, remote string) string {
 }
 
 func (g *Gateway) pathOf(remote string) string {
-	if g.paths == nil {
+	g.mu.Lock()
+	paths := g.paths
+	g.mu.Unlock()
+	if paths == nil {
 		return ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	st, err := g.paths.Status(ctx)
+	st, err := paths.Status(ctx)
 	if err != nil {
 		return ""
 	}
