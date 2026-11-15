@@ -117,7 +117,7 @@ func (g *Gateway) serveUpdate(w http.ResponseWriter, r *http.Request, id Identit
 		json.NewEncoder(w).Encode(g.updateStatus(r.Context()))
 	case "POST":
 		if id.Addon || !g.mayConfigure(id) {
-			http.Error(w, "only the owner and administrators may update Atrium", http.StatusForbidden)
+			http.Error(w, "only the owner and administrators may update Domiel", http.StatusForbidden)
 			return
 		}
 		info := g.updateStatus(r.Context())
@@ -128,10 +128,10 @@ func (g *Gateway) serveUpdate(w http.ResponseWriter, r *http.Request, id Identit
 		case info.InProgress:
 			// Already under way: say so, as a success.
 		case !info.Available:
-			http.Error(w, "Atrium "+version+" is the newest version", http.StatusConflict)
+			http.Error(w, "Domiel "+version+" is the newest version", http.StatusConflict)
 			return
 		default:
-			log.Printf("%s (%s) asked Home Assistant to update Atrium %s to %s", id.Login, id.Device, version, info.Latest)
+			log.Printf("%s (%s) asked Home Assistant to update Domiel %s to %s", id.Login, id.Device, version, info.Latest)
 			go func() {
 				// Not the request's context: the caller goes away long before the Supervisor is done.
 				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)

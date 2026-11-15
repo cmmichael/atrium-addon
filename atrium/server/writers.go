@@ -82,7 +82,7 @@ func (g *Gateway) serveWriters(w http.ResponseWriter, r *http.Request, id Identi
 	}
 	slug := strings.TrimSpace(body.Slug)
 	if slug == "self" || (g.Slug != "" && slug == g.Slug) {
-		http.Error(w, "Atrium does not list itself", http.StatusBadRequest)
+		http.Error(w, "Domiel does not list itself", http.StatusBadRequest)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
@@ -98,7 +98,7 @@ func (g *Gateway) serveWriters(w http.ResponseWriter, r *http.Request, id Identi
 		return
 	}
 	if g.Slug != "" && info.Slug == g.Slug {
-		http.Error(w, "Atrium does not list itself", http.StatusBadRequest)
+		http.Error(w, "Domiel does not list itself", http.StatusBadRequest)
 		return
 	}
 	writers, err := g.addWriter(ctx, slug)

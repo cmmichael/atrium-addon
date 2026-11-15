@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.67"
+const version = "0.9.68"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -334,7 +334,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if g.foreignPage(r) {
-		http.Error(w, "web pages may not use Atrium", http.StatusForbidden)
+		http.Error(w, "web pages may not use Domiel", http.StatusForbidden)
 		return
 	}
 	id, err := g.Who(r.Context(), r.RemoteAddr)
@@ -367,7 +367,7 @@ func (in Ingress) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") != "" {
-			http.Error(w, "web pages may not use Atrium this way", http.StatusForbidden)
+			http.Error(w, "web pages may not use Domiel this way", http.StatusForbidden)
 			return
 		}
 		in.serve(w, r, Identity{Login: slug, Name: "Add-on " + slug, Device: "add-on", Addon: true}, "")
@@ -376,7 +376,7 @@ func (in Ingress) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Header.Get("Sec-Fetch-Site") {
 	case "", "none", "same-origin": // the panel's own requests; the Supervisor checks the session
 	default:
-		http.Error(w, "web pages may not use the Atrium panel", http.StatusForbidden)
+		http.Error(w, "web pages may not use the Domiel panel", http.StatusForbidden)
 		return
 	}
 	user := r.Header.Get("X-Remote-User-Name")
@@ -584,9 +584,9 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		log.Printf("refused %s (%s) %s %s", id.Login, id.Device, r.Method, r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		message := "This Tailscale login is not allowed by Atrium"
+		message := "This Tailscale login is not allowed by Domiel"
 		if id.HomeAssistant {
-			message = "Only Home Assistant administrators may use the Atrium panel"
+			message = "Only Home Assistant administrators may use the Domiel panel"
 		}
 		json.NewEncoder(w).Encode(map[string]any{"message": message, "login": id.Login})
 		return
@@ -673,7 +673,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		log.Printf("%s (%s) connected from %s%s", id.Login, id.Device, r.RemoteAddr, g.pathOf(r.RemoteAddr))
 		g.serveWebSocket(w, r, id, up)
 	case supervisorPath(r.URL.Path): // the app has no use for the Supervisor, its services or backups
-		http.Error(w, "the Supervisor is not reachable through Atrium", http.StatusForbidden)
+		http.Error(w, "the Supervisor is not reachable through Domiel", http.StatusForbidden)
 	case strings.HasPrefix(r.URL.Path, "/api/"):
 		forward(w, r, up.Base, up.Token)
 	case strings.HasPrefix(r.URL.Path, "/local/"):
@@ -807,7 +807,7 @@ func (g *Gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, id Iden
 			if signedIn && kind == websocket.MessageText {
 				if msgID, refused := supervisorMessage(data); refused {
 					answer, _ := json.Marshal(map[string]any{"id": msgID, "type": "result", "success": false,
-						"error": map[string]any{"code": "unauthorized", "message": "the Supervisor is not reachable through Atrium"}})
+						"error": map[string]any{"code": "unauthorized", "message": "the Supervisor is not reachable through Domiel"}})
 					log.Printf("%s (%s): refused a Supervisor request over the WebSocket", id.Login, id.Device)
 					if client.Write(ctx, websocket.MessageText, answer) != nil {
 						return
@@ -861,7 +861,7 @@ func (g *Gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, id Iden
 	case <-done:
 		client.Close(websocket.StatusNormalClosure, "")
 	case <-g.stopping():
-		client.Close(websocket.StatusGoingAway, "Atrium is restarting")
+		client.Close(websocket.StatusGoingAway, "Domiel is restarting")
 	}
 	server.Close(websocket.StatusNormalClosure, "")
 }
@@ -1196,14 +1196,14 @@ func main() {
 		s := newServer(NewLocal(g))
 		s.Addr = ":" + port
 		if err := s.ListenAndServe(); err != nil {
-			log.Printf("home network port: %v (the app reaches Atrium over Tailscale or through Home Assistant only)", err)
+			log.Printf("home network port: %v (the app reaches Domiel over Tailscale or through Home Assistant only)", err)
 		}
 	}()
 
 	srv := &tsnet.Server{Hostname: opts.Hostname, Dir: env("ATRIUM_STATE", "/data/tsnet"), AuthKey: opts.AuthKey, UserLogf: log.Printf, Logf: func(string, ...any) {}}
 	defer srv.Close()
 	g.onStop(func() { srv.Close() })
-	log.Printf("Atrium %s: joining the tailnet as %q. The first time, sign in from the Atrium panel in Home Assistant (or open the link below once).", version, opts.Hostname)
+	log.Printf("Domiel %s: joining the tailnet as %q. The first time, sign in from the Domiel panel in Home Assistant (or open the link below once).", version, opts.Hostname)
 	g.setup = Setup{State: "starting"}
 	if err := srv.Start(); err != nil {
 		log.Fatalf("Tailscale: %v", err)

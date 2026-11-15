@@ -1,13 +1,13 @@
-# Atrium privacy policy
+# Domiel privacy policy
 
 Last updated 15 November 2026.
 
-Atrium is an iPhone and iPad app, with a Home Assistant add-on, for controlling your own home. It is published by
+Domiel is an iPhone and iPad app, with a Home Assistant add-on, for controlling your own home. It is published by
 Constantinos Michael. This policy covers the app and the add-on.
 
 ## The short version
 
-Atrium has no accounts and no servers that keep your data. The app talks to your own Home Assistant, at home or
+Domiel has no accounts and no servers that keep your data. The app talks to your own Home Assistant, at home or
 over your own Tailscale network. The publisher collects nothing about you, your home or how you use the app. There
 is no advertising, no analytics service and no tracking.
 
@@ -25,7 +25,7 @@ is no advertising, no analytics service and no tracking.
 ## What leaves your home, and only when you use it
 
 - **AI Assist.** A question you type or speak goes to your Home Assistant's Assist. If you have set Assist up to use
-  a cloud AI service, Home Assistant sends the question to that service under its terms. Atrium does not choose or
+  a cloud AI service, Home Assistant sends the question to that service under its terms. Domiel does not choose or
   contact that service itself.
 - **Voice.** When you ask by voice, iOS turns your speech into text on the device where it can. Where it cannot,
   Apple's speech recognition handles it under Apple's privacy policy. The microphone is used only while you ask.
@@ -33,7 +33,7 @@ is no advertising, no analytics service and no tracking.
   your device. Your add-on either sends it to Apple directly, with its own key, or through the publisher's push
   relay. The relay sees the device token and the alert's title and body on the way to Apple. It keeps none of it and
   logs no content.
-- **Updates.** The app and the add-on check GitHub for newer versions of Atrium. GitHub sees that request like any
+- **Updates.** The app and the add-on check GitHub for newer versions of Domiel. GitHub sees that request like any
   web request.
 - **Tailscale.** If you connect through Tailscale, Tailscale's own app and service handle that connection under
   Tailscale's privacy policy.
@@ -47,7 +47,7 @@ is no advertising, no analytics service and no tracking.
 
 ## Children
 
-Atrium is a tool for a household's own home and does not knowingly collect anything from anyone, children
+Domiel is a tool for a household's own home and does not knowingly collect anything from anyone, children
 included.
 
 ## Your choices

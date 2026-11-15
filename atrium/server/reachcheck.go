@@ -89,7 +89,7 @@ func (g *Gateway) watchReach(src statusSource, p pinger, first, every time.Durat
 		g.reach.mu.Unlock()
 		switch {
 		case r.unreachable() && !wasDown:
-			log.Printf("tailnet: none of %d online devices answered a ping; the apps may not reach Atrium (Tailscale says it is up)", r.Tried)
+			log.Printf("tailnet: none of %d online devices answered a ping; the apps may not reach Domiel (Tailscale says it is up)", r.Tried)
 		case !r.unreachable() && wasDown && r.Answered > 0:
 			log.Printf("tailnet: devices answer again (%d of %d)", r.Answered, r.Tried)
 		}

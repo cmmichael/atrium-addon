@@ -211,7 +211,7 @@ func (g *Gateway) startAssistFlow(ctx context.Context, id Identity, kind string)
 		flow = assistFlow{kind: kind, agent: a, prompt: suggested(out, "prompt"), login: id.Login, at: time.Now()}
 	case "history":
 		if entry, _ := g.historyConnected(ctx); entry != "" {
-			return nil, errors.New("Atrium's history tools are connected already")
+			return nil, errors.New("Domiel's history tools are connected already")
 		}
 		if err := g.haREST(ctx, "POST", "/api/config/config_entries/flow", map[string]any{"handler": "mcp"}, &out); err != nil {
 			return nil, err
@@ -262,7 +262,7 @@ func (g *Gateway) stepAssistFlow(ctx context.Context, id Identity, flowID, metho
 	flow, ok := g.assistCfg.flows[flowID]
 	g.assistCfg.mu.Unlock()
 	if !ok || strings.ContainsAny(flowID, "/?#") {
-		return nil, errors.New("not a settings form Atrium started")
+		return nil, errors.New("not a settings form Domiel started")
 	}
 	path := "/api/config/config_entries/subentries/flow/" + flowID
 	if flow.kind == "history" {

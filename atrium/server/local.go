@@ -31,13 +31,13 @@ func localPath(p string) bool {
 
 func (l Local) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Origin") != "" {
-		http.Error(w, "web pages may not use Atrium", http.StatusForbidden)
+		http.Error(w, "web pages may not use Domiel", http.StatusForbidden)
 		return
 	}
 	switch r.Header.Get("Sec-Fetch-Site") {
 	case "", "none":
 	default:
-		http.Error(w, "web pages may not use Atrium", http.StatusForbidden)
+		http.Error(w, "web pages may not use Domiel", http.StatusForbidden)
 		return
 	}
 	if !localPath(r.URL.Path) {

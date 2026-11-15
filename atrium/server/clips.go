@@ -218,7 +218,7 @@ func (g *Gateway) serveClips(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if err != nil || !listed {
-			http.Error(w, `{"error":"not a clip Atrium listed"}`, http.StatusNotFound)
+			http.Error(w, `{"error":"not a clip Domiel listed"}`, http.StatusNotFound)
 			return
 		}
 		url, err := g.resolveClip(r.Context(), id)

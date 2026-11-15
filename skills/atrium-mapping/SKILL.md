@@ -1,14 +1,14 @@
 ---
 name: atrium-mapping
-description: Write or revise atrium.yaml, the Atrium layout file for a Home Assistant — the custom screens (Home readouts, Security, Energy, Music, TV remotes, Home Screen widgets) and the overrides on the automatic rooms (hide, rank, rename, thermostat). Use when setting Atrium up for a house, when a custom screen is empty or wrong, when a television's remote lacks a key or an input (an HDMI matrix, a receiver), when the rooms need tidying, or when the add-on log reports mapping problems.
+description: Write or revise atrium.yaml, the Domiel layout file for a Home Assistant — the custom screens (Home readouts, Security, Energy, Music, TV remotes, Home Screen widgets) and the overrides on the automatic rooms (hide, rank, rename, thermostat). Use when setting Domiel up for a house, when a custom screen is empty or wrong, when a television's remote lacks a key or an input (an HDMI matrix, a receiver), when the rooms need tidying, or when the add-on log reports mapping problems.
 ---
 
-# Atrium mapping
+# Domiel mapping
 
-Atrium draws the rooms by itself from Home Assistant's areas, floors, devices and entities on every build: a new
+Domiel draws the rooms by itself from Home Assistant's areas, floors, devices and entities on every build: a new
 device is in the app a moment later, with nothing written anywhere. What it cannot know goes in one file,
 `atrium.yaml`, in the add-on's own folder (`/addon_configs/df84f1fd_atrium/atrium.yaml` on the Home Assistant
-machine; the Atrium add-on itself sees it as `/config/atrium.yaml`; part of Atrium's backups):
+machine; the Domiel add-on itself sees it as `/config/atrium.yaml`; part of Domiel's backups):
 
 - **The custom screens**, which need judgment: `home` (weather, inside and outside temperature, alarm, people),
   `security` (cameras, the doorbell, entries, hazards), `energy` (solar, grid, consumers, water), `music`
@@ -25,35 +25,35 @@ The add-on re-reads the file whenever it changes and reports problems — an ent
 floor — in its log (`ha apps logs df84f1fd_atrium` for the Store install; look for lines starting `mapping:`)
 and on its set-up page.
 
-## Where Atrium is
+## Where Domiel is
 
-Atrium is an MCP server and an HTTP API; use whichever you can reach. Its tools are this skill (`atrium_skill`),
+Domiel is an MCP server and an HTTP API; use whichever you can reach. Its tools are this skill (`atrium_skill`),
 the contract (`atrium_contract`), the house as Home Assistant has it (`atrium_home`, filter by domain or area),
 the add-on's own guesses for the custom screens (`atrium_auto`; `atrium_draft` runs the script below for the
 same with `# check` marks), the current file
 (`atrium_mapping_get`), saving with checks (`atrium_mapping_put`) and the status (`atrium_layout_status`). With
 it, drafting and delivering are tool calls; `skills/atrium-mapping/draft.py` is only for when you cannot reach
-Atrium at all.
+Domiel at all.
 
-- **From inside Home Assistant** (you are the Claude Code app, or another app the owner listed under Atrium's
-  *Apps that may write the layout*): Atrium is at `http://df84f1fd-atrium:8099` on the apps' network — the add-on
-  slug with a dash. No token: Atrium knows your app by its address. `claude mcp add --transport http atrium
+- **From inside Home Assistant** (you are the Claude Code app, or another app the owner listed under Domiel's
+  *Apps that may write the layout*): Domiel is at `http://df84f1fd-atrium:8099` on the apps' network — the add-on
+  slug with a dash. No token: Domiel knows your app by its address. `claude mcp add --transport http atrium
   http://df84f1fd-atrium:8099/mcp`, or plain HTTP: `curl -sS -X PUT --data-binary @atrium.yaml
   http://df84f1fd-atrium:8099/atrium/mapping` (answers `{"rooms": N, "problems": [...], "path": ...}`), and
-  `GET` the same path to read it back. No extra flags: Atrium's port is IPv4-only, so curl falls back to IPv4 by
-  itself. A 403 is not only "not listed": its body (and Atrium's log) names the cause, and you tell the owner the
+  `GET` the same path to read it back. No extra flags: Domiel's port is IPv4-only, so curl falls back to IPv4 by
+  itself. A 403 is not only "not listed": its body (and Domiel's log) names the cause, and you tell the owner the
   remedy. *no add-on is listed under writers* or *`<slug>` is at `<address>`, not `<peer>`*: the owner lists your
   app's slug (`<repository-hash>_<name>`; `d7e97e69_claudecode` for the Claude Code app installed from its own
-  repository) under Atrium's **Apps that may write the layout**. *`<slug>` does not resolve*: the listed slug is
-  misspelt, or that app is not started. *Supervisor status 403*: Atrium is older than 0.9.1 and lacks
+  repository) under Domiel's **Apps that may write the layout**. *`<slug>` does not resolve*: the listed slug is
+  misspelt, or that app is not started. *Supervisor status 403*: Domiel is older than 0.9.1 and lacks
   `hassio_api`; the owner updates it. *Supervisor status 404* or *is "stopped"*: the listed app is not installed
   or not running. *IPv6 peer*: retry over IPv4 (`curl -4`). *the Supervisor did not answer*: try again shortly.
 - **From a device on the owner's tailnet** (your Tailscale login is the owner's or an admin's): the same at
   `https://atrium.<tailnet>.ts.net` — `claude mcp add --transport http atrium https://atrium.<tailnet>.ts.net/mcp`.
 - **Neither**: run `draft.py` against Home Assistant with a long-lived access token (below), review, and give the
   owner the file to put at `/addon_configs/df84f1fd_atrium/atrium.yaml` (the Terminal app sees that path; the
-  add-on re-reads it on change) or to paste into **Edit** on Atrium's set-up page. Never ask for or store a token
-  to reach Atrium's ingress for the owner; never make a session for the owner's user with the Supervisor token.
+  add-on re-reads it on change) or to paste into **Edit** on Domiel's set-up page. Never ask for or store a token
+  to reach Domiel's ingress for the owner; never make a session for the owner's user with the Supervisor token.
 
 ## 1. Draft
 
@@ -65,7 +65,7 @@ HA_TOKEN=… python3 draft.py --url http://homeassistant:8123 > /tmp/atrium.draf
 Standard library only (Home Assistant OS has no pip). It reads the registries and every state over the WebSocket
 API and writes a draft of the custom screens — the whole-house readouts, security, energy, music — plus a room
 override wherever an area has more than one thermostat, and scripts offered as scene chips. It writes no rooms:
-Atrium has them. A summary line (counts) goes to stderr. Every guess carries a trailing `# check`.
+Domiel has them. A summary line (counts) goes to stderr. Every guess carries a trailing `# check`.
 
 If you are revising an existing `atrium.yaml`, read it first and keep the owner's decisions; use a fresh
 draft only to find entities that are new since.
@@ -73,7 +73,7 @@ draft only to find entities that are new since.
 ## 2. Review — this is where the judgment goes
 
 Go through the draft with the registry in mind (`atrium_home`, or `get_states` in a `ha` shell, shows what Home
-Assistant has). Then look at the rooms as Atrium draws them (`atrium_layout_status` for the count; the set-up
+Assistant has). Then look at the rooms as Domiel draws them (`atrium_layout_status` for the count; the set-up
 page or the app for the picture) and add overrides only where they are wrong. Check, in this order:
 
 - **Every `# check` line.** Decide, then delete the comment.
@@ -127,7 +127,7 @@ page or the app for the picture) and add overrides only where they are wrong. Ch
 - **People.** `home.people` should be the household, not every `person.*` (guests, test users).
 - **Whole integrations.** A car, a printer, a test integration: one `hide: [integration:<platform>]` line is
   better than hiding its entities one by one.
-- **Names.** `names:` only where Home Assistant's name is wrong on a screen (Atrium already shortens "Kitchen
+- **Names.** `names:` only where Home Assistant's name is wrong on a screen (Domiel already shortens "Kitchen
   Island lights" to "Island lights" in the kitchen). Add names for consumers ("Oven" not "Oven power") and
   cameras; do not rename everything.
 - **Floors.** Rank them as the family says them (top of the list first). Rooms on no floor sit on an `other`
@@ -147,13 +147,13 @@ page or the app for the picture) and add overrides only where they are wrong. Ch
   **Put the logic in Home Assistant.** When choosing an input means several steps (switch the matrix, wake the
   receiver, pick its HDMI, set the television's source), write a Home Assistant **script** that does them — in
   Home Assistant's own YAML, where it can be run from the Home Assistant UI and used by automations too — and point
-  the Atrium input or button at the script. You have the tools for that (the Home Assistant config, `ha` and the
+  the Domiel input or button at the script. You have the tools for that (the Home Assistant config, `ha` and the
   WebSocket API); the layout file only names the script. A television with nothing special needs no entry at
   all: a Frame TV, a Google TV or a Roku on its own is complete as guessed.
 
 ## 3. Deliver and verify
 
-Hand the file to Atrium yourself: `atrium_mapping_put` (MCP) or `PUT /atrium/mapping` (HTTP), from wherever you
+Hand the file to Domiel yourself: `atrium_mapping_put` (MCP) or `PUT /atrium/mapping` (HTTP), from wherever you
 reached it above. It is checked first (a bad file is refused with the reason and nothing changes), saved,
 rendered, and the answer lists what Home Assistant does not have. The owner does nothing.
 

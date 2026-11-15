@@ -1,7 +1,7 @@
-name: Atrium
-version: "0.9.67"
+name: Domiel
+version: "0.9.68"
 slug: atrium
-description: Your house in the Atrium app and on the web, from anywhere, over your tailnet
+description: Your house in the Domiel app and on the web, from anywhere, over your tailnet
 url: https://github.com/cmmichael/atrium-addon
 image: ghcr.io/cmmichael/atrium-{arch}  # built by the add-on repository's workflow on each release; pulled, not built, on install
 arch:
@@ -23,7 +23,7 @@ ports_description:
 ingress_port: 8099
 watchdog: tcp://[HOST]:[PORT:8099]   # the Supervisor restarts the add-on if its ingress port stops answering
 panel_icon: mdi:home-heart
-panel_title: Atrium
+panel_title: Domiel
 options:
   hostname: atrium
   allow: []

@@ -1,15 +1,17 @@
-# Atrium for Home Assistant
+# Domiel for Home Assistant
 
-Your home in the Atrium app and on the web, over your tailnet, signed in by Tailscale. No passwords, no tokens, no
+Formerly Atrium. Only the name changed; this repository and existing installs stay as they are.
+
+Your home in the Domiel app and on the web, over your tailnet, signed in by Tailscale. No passwords, no tokens, no
 port forwarding; nothing to type.
 
 [![Add to Home Assistant](https://my.home-assistant.io/badges/supervisor_addon.svg)](https://my.home-assistant.io/redirect/supervisor_addon/?addon=df84f1fd_atrium&repository_url=https%3A%2F%2Fgithub.com%2Fcmmichael%2Fatrium-addon)
 
-1. Press the button. Your Home Assistant opens Atrium's page (adding this repository first): press **Install**, then
+1. Press the button. Your Home Assistant opens Domiel's page (adding this repository first): press **Install**, then
    **Start**.
-2. Press **Open Web UI**. Atrium asks you to **Sign in to Tailscale**, once, and then shows your home and its address
+2. Press **Open Web UI**. Domiel asks you to **Sign in to Tailscale**, once, and then shows your home and its address
    on the tailnet.
-3. On your iPhone or iPad, turn Tailscale on and open Atrium. It finds the home by itself.
+3. On your iPhone or iPad, turn Tailscale on and open Domiel. It finds the home by itself.
 
 Turn on **Show in sidebar** to keep the set-up page in Home Assistant's sidebar. Everything else, including who may
 use it, is in [atrium/DOCS.md](atrium/DOCS.md).
@@ -24,11 +26,11 @@ In Home Assistant's Terminal app:
 
     curl -fsSL https://raw.githubusercontent.com/cmmichael/atrium-addon/main/reset.sh | sh
 
-That stops and uninstalls Atrium (its settings, layout and Tailscale sign-in go with it), removes any copy in the
+That stops and uninstalls Domiel (its settings, layout and Tailscale sign-in go with it), removes any copy in the
 local apps folder, and reloads the store. To keep the layout for the next install, run it as
 `KEEP_LAYOUT=1 sh` instead of `sh`. Two things it cannot reach: remove the **atrium** machine in your
 Tailscale admin console (or the next install is named `atrium-1`), and delete the app from your phone if you want
 it fresh too. Then press the button above again.
 
-Published from the Atrium repository by `tools/publish-addon.sh`; the source of truth is there. Current version:
-**0.9.67** (atrium@a917235).
+Published from the Domiel repository by `tools/publish-addon.sh`; the source of truth is there. Current version:
+**0.9.68** (atrium@704d159).
