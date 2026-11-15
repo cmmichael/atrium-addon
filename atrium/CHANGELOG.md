@@ -3,6 +3,10 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.58
+
+- History tools for AI Assist: a read-only MCP server for Home Assistant's MCP integration, so the assistant can say when something last changed, how long it was on, and daily totals. Only entities exposed to Assist; only Home Assistant may use it. See History in the documentation.
+
 ## 0.9.57
 
 - App connections are pinged every 30 seconds and closed when there is no answer within 20, so an app iOS ended no longer counts as open.

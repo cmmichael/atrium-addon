@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.57"
+const version = "0.9.58"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -103,13 +103,16 @@ type Upstream struct {
 }
 
 type Gateway struct {
-	pings [2]time.Duration // how often an app socket is pinged and how long it may take to answer; zero: the defaults
-	Who   func(ctx context.Context, remoteAddr string) (Identity, error)
-	Owner string // the login that signed this machine in to the tailnet: always allowed
-	Opts  Options
-	Addon Upstream // through the Supervisor, as the add-on
-	Core  *url.URL // Home Assistant itself: /local/ files, and people with a token of their own
-	Names []string // this machine's names and addresses: the only Hosts answered
+	history          historyCache
+	HistoryTokenPath string               // the history endpoint's secret is kept here (/data/history-token)
+	isCore           func(ip string) bool // tests: whether a peer is Home Assistant itself
+	pings            [2]time.Duration     // how often an app socket is pinged and how long it may take to answer; zero: the defaults
+	Who              func(ctx context.Context, remoteAddr string) (Identity, error)
+	Owner            string // the login that signed this machine in to the tailnet: always allowed
+	Opts             Options
+	Addon            Upstream // through the Supervisor, as the add-on
+	Core             *url.URL // Home Assistant itself: /local/ files, and people with a token of their own
+	Names            []string // this machine's names and addresses: the only Hosts answered
 
 	ConfigPath  string   // where the owner's preferences are kept ("" = not saved)
 	MappingPath string   // the declared layout, atrium.yaml in the add-on's own configuration folder
@@ -346,6 +349,10 @@ type Ingress struct{ *Gateway }
 
 func (in Ingress) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	peer, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if strings.HasPrefix(r.URL.Path, "/mcp/history/") { // Home Assistant's own assistant (history.go)
+		in.serveHistoryMCP(w, r, peer)
+		return
+	}
 	if !in.fromSupervisor(peer) {
 		// Not the Supervisor: perhaps an add-on the owner lets write the layout (the Claude Code add-on, running
 		// the atrium-mapping skill). It is known by its container's address on the Supervisor's network. When it
@@ -382,7 +389,8 @@ func (in Ingress) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func writerPath(p string) bool {
 	switch {
 	case p == "/atrium/hello", p == "/atrium/setup", p == "/atrium/house", p == "/atrium/mapping", p == "/atrium/health", p == "/atrium/digest", p == "/mcp",
-		p == "/atrium/update": // to read whether an update is waiting; installing it stays the owner's (serveUpdate)
+		p == "/atrium/update",      // to read whether an update is waiting; installing it stays the owner's (serveUpdate)
+		p == "/atrium/history-mcp": // the address to give Home Assistant's MCP integration
 		return true
 	case strings.HasPrefix(p, "/atrium/skill/"):
 		return true
@@ -630,6 +638,15 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		}
 	case r.URL.Path == "/mcp":
 		g.serveMCP(w, r, id)
+	case r.URL.Path == "/atrium/history-mcp":
+		// Where Home Assistant's MCP integration finds the history tools, for the owner, administrators and listed
+		// add-ons: the URL holds the secret, and only Home Assistant itself may use it.
+		if !g.mayConfigure(id) {
+			http.Error(w, "only the owner and administrators may see this", http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"url": g.historyURL(), "transport": "streamable HTTP (JSON-RPC over POST)", "tools": len(historyTools)})
 	case strings.HasPrefix(r.URL.Path, "/atrium/skill/") && g.SkillDir != "":
 		name := path.Base(r.URL.Path) // SKILL.md, draft.py, mapping.md: so "point your Claude at this URL" works too
 		if f, err := os.Stat(filepath.Join(g.SkillDir, name)); err != nil || f.IsDir() {
@@ -979,6 +996,7 @@ func main() {
 	g.alerts = &alerts{path: env("ATRIUM_DEVICES", "/data/devices.json")}
 	g.appsPath = env("ATRIUM_APPS", "/data/apps.json")
 	g.assist = &assistLog{path: env("ATRIUM_ASSIST", "/data/assist.jsonl"), max: 8 << 20}
+	g.HistoryTokenPath = env("ATRIUM_HISTORY_TOKEN", "/data/history-token")
 	g.dreams.dir = env("ATRIUM_MEMORY", "/data/memory")
 	if apns, err := newAPNS(opts); err != nil {
 		log.Printf("alerts: %v; alerts are logged only until the options are right", err)

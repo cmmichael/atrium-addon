@@ -239,6 +239,18 @@ Every question, from any app, is kept on this side with the steps, the answer an
 this add-on's Log tab, and the full record in the add-on's data, which the owner and administrators can read at
 `/atrium/assist`. Use it to see what the assistant gets wrong, and expose more or improve its prompt.
 
+### History
+
+Assist sees the house as it is now, not as it was. To let it answer "when was the front door last open" or "how
+long was the TV on today", give it this add-on's history tools:
+
+1. As an administrator, open `/atrium/history-mcp` in the Atrium panel. It shows a URL with a secret in it.
+2. Add the **Model Context Protocol** integration (Settings → Devices & services → Add integration) with that URL.
+3. In your AI agent's settings, turn on the new tools next to Assist.
+
+The tools only read the recorder: when something last changed, its changes over a day, how long it was in a state,
+and daily totals. They answer only about entities exposed to Assist, and only to Home Assistant itself.
+
 ### Memory and dreaming
 
 To have the assistant remember things between conversations, make a to-do list called **AI Memory** (Settings →
