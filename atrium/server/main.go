@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.58"
+const version = "0.9.59"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -523,7 +523,13 @@ func serveIngress(addr string, g *Gateway) error {
 	if err != nil {
 		return err
 	}
-	return http.Serve(ln, Ingress{g})
+	return newServer(Ingress{g}).Serve(ln)
+}
+
+// newServer: a server that does not wait forever for a slow or silent client to send its request (WebSockets and
+// long answers are not cut short: only the headers and idle connections have limits).
+func newServer(h http.Handler) *http.Server {
+	return &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 }
 
 func ingressListener(addr string) (net.Listener, error) { return net.Listen("tcp4", addr) }
@@ -658,8 +664,8 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 	case r.URL.Path == "/api/websocket":
 		log.Printf("%s (%s) connected from %s%s", id.Login, id.Device, r.RemoteAddr, g.pathOf(r.RemoteAddr))
 		g.serveWebSocket(w, r, id, up)
-	case strings.HasPrefix(r.URL.Path, "/api/hassio"): // /api/hassio/…, /api/hassio_ingress/…, /api/hassio_app/…
-		http.Error(w, "the Supervisor is not reachable through Atrium", http.StatusForbidden) // the app has no use for it
+	case supervisorPath(r.URL.Path): // the app has no use for the Supervisor, its services or backups
+		http.Error(w, "the Supervisor is not reachable through Atrium", http.StatusForbidden)
 	case strings.HasPrefix(r.URL.Path, "/api/"):
 		forward(w, r, up.Base, up.Token)
 	case strings.HasPrefix(r.URL.Path, "/local/"):
@@ -764,7 +770,9 @@ func (g *Gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, id Iden
 	defer func() { g.open.Add(-1); g.sockets.Done() }()
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	server, _, err := websocket.Dial(ctx, up.WS, nil)
+	dialCtx, dialCancel := context.WithTimeout(ctx, 15*time.Second)
+	server, _, err := websocket.Dial(dialCtx, up.WS, nil)
+	dialCancel()
 	if err != nil {
 		log.Printf("Home Assistant's WebSocket did not answer: %v", err)
 		client.Close(websocket.StatusBadGateway, "Home Assistant did not answer")
@@ -786,6 +794,17 @@ func (g *Gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, id Iden
 			if !signedIn && kind == websocket.MessageText {
 				if with, ok := withToken(data, up.Token); ok {
 					data, signedIn = with, true
+				}
+			}
+			if signedIn && kind == websocket.MessageText {
+				if msgID, refused := supervisorMessage(data); refused {
+					answer, _ := json.Marshal(map[string]any{"id": msgID, "type": "result", "success": false,
+						"error": map[string]any{"code": "unauthorized", "message": "the Supervisor is not reachable through Atrium"}})
+					log.Printf("%s (%s): refused a Supervisor request over the WebSocket", id.Login, id.Device)
+					if client.Write(ctx, websocket.MessageText, answer) != nil {
+						return
+					}
+					continue
 				}
 			}
 			if server.Write(ctx, kind, data) != nil {
@@ -837,6 +856,39 @@ func (g *Gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, id Iden
 		client.Close(websocket.StatusGoingAway, "Atrium is restarting")
 	}
 	server.Close(websocket.StatusNormalClosure, "")
+}
+
+// supervisorPath: Home Assistant's REST paths that reach the Supervisor or backups. /api/hassio/…,
+// /api/hassio_ingress/…, /api/hassio_app/…, the hassio and backup services, and /api/backup/….
+func supervisorPath(p string) bool {
+	p = strings.ToLower(path.Clean(p))
+	return strings.HasPrefix(p, "/api/hassio") || strings.HasPrefix(p, "/api/backup") ||
+		strings.HasPrefix(p, "/api/services/hassio/") || strings.HasPrefix(p, "/api/services/backup/")
+}
+
+// supervisorMessage: a WebSocket message that would reach the Supervisor or backups (supervisor/api and its
+// kin, backup/…, a hassio or backup service, a script that calls one). Answered here with a refusal instead.
+func supervisorMessage(data []byte) (id any, refused bool) {
+	var m map[string]any
+	if json.Unmarshal(data, &m) != nil {
+		return nil, false
+	}
+	kind, _ := m["type"].(string)
+	kind = strings.ToLower(kind)
+	id = m["id"]
+	switch {
+	case strings.HasPrefix(kind, "supervisor/"), strings.HasPrefix(kind, "hassio/"), strings.HasPrefix(kind, "backup/"):
+		return id, true
+	case kind == "call_service":
+		domain, _ := m["domain"].(string)
+		domain = strings.ToLower(strings.TrimSpace(domain))
+		return id, domain == "hassio" || domain == "backup"
+	case kind == "execute_script":
+		seq, _ := json.Marshal(m["sequence"])
+		low := strings.ToLower(string(seq))
+		return id, strings.Contains(low, "hassio.") || strings.Contains(low, "backup.")
+	}
+	return id, false
 }
 
 // withToken puts the real token into a Home Assistant "auth" message.
@@ -1068,14 +1120,16 @@ func main() {
 			g.setup = Setup{State: "up", Address: "http://" + listen}
 		}
 		if local := os.Getenv("ATRIUM_LOCAL"); local != "" { // e.g. 127.0.0.1:8126: the add-on's port, with Home Assistant tokens
-			go func() { log.Fatal(http.ListenAndServe(local, NewLocal(g))) }()
+			go func() { s := newServer(NewLocal(g)); s.Addr = local; log.Fatal(s.ListenAndServe()) }()
 		}
 		if ingress := os.Getenv("ATRIUM_INGRESS"); ingress != "" { // e.g. 127.0.0.1:8099: pretends to be the Supervisor's ingress
 			g.Supervisor = []string{"127.0.0.1"}
 			go func() { log.Fatal(serveIngress(ingress, g)) }()
 		}
 		log.Printf("DEVELOPMENT MODE: no Tailscale; every caller is %s. Listening on http://%s, upstream %s, web %q", login, listen, up, g.WebDir)
-		log.Fatal(http.ListenAndServe(listen, g))
+		s := newServer(g)
+		s.Addr = listen
+		log.Fatal(s.ListenAndServe())
 	}
 
 	token := os.Getenv("SUPERVISOR_TOKEN")
@@ -1130,7 +1184,9 @@ func main() {
 	go func() {
 		port := env("ATRIUM_LOCAL_PORT", "8126")
 		log.Printf("Layout for the app on the home network on :%s (a Home Assistant sign-in is asked for)", port)
-		if err := http.ListenAndServe(":"+port, NewLocal(g)); err != nil {
+		s := newServer(NewLocal(g))
+		s.Addr = ":" + port
+		if err := s.ListenAndServe(); err != nil {
 			log.Printf("home network port: %v (the app reaches Atrium over Tailscale or through Home Assistant only)", err)
 		}
 	}()

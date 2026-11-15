@@ -32,6 +32,7 @@ const historyDays = 10
 type histEntity struct {
 	ID, Name, Area, DeviceClass, Unit, State string
 	names                                    []string // normalised: name, friendly name, aliases, area + name
+	labelled                                 string   // the label with the entity id, where two found share a name
 }
 
 type histIndex struct {
@@ -177,7 +178,7 @@ var historyTools = []map[string]any{
 			"entity": historyEntityArg, "day": historyDayArg,
 			"state": map[string]any{"type": "string", "description": "optional: the state to count"},
 		}}},
-	{"name": "history_daily", "description": "A sensor's daily figures over recent days from long-term statistics: totals for meters (energy, water, gas), otherwise the day's average, low and high (temperature, humidity).",
+	{"name": "history_daily", "description": "A sensor's daily figures over recent days from long-term statistics: totals for meters (energy in kWh, water, gas), otherwise the day's average, low and high (temperature, humidity, power). For how much energy was made or used, ask the energy meter, not the power sensor: power gives averages.",
 		"inputSchema": map[string]any{"type": "object", "required": []string{"entity"}, "properties": map[string]any{
 			"entity": historyEntityArg,
 			"days":   map[string]any{"type": "integer", "description": "how many days back, today included (default 7, at most 31)"},
@@ -209,6 +210,7 @@ func (g *Gateway) historyTool(ctx context.Context, name string, args map[string]
 	if len(ents) == 0 {
 		return "", fmt.Errorf("nothing exposed to Assist is called %q; try history_find", str("entity"))
 	}
+	ents = distinctLabels(ents)
 	now = now.In(ix.loc)
 	switch name {
 	case "history_last_change", "history_changes", "history_time_in_state":
@@ -415,10 +417,31 @@ func (ix *histIndex) find(q string, limit int) []*histEntity {
 }
 
 func (e *histEntity) label() string {
+	if e.labelled != "" {
+		return e.labelled
+	}
 	if e.Area != "" && !strings.Contains(strings.ToLower(e.Name), strings.ToLower(e.Area)) {
 		return e.Name + " (" + e.Area + ")"
 	}
 	return e.Name
+}
+
+// distinctLabels: where two entities found go by the same name (a garage door's cover and its sensor), each
+// answer line says which is which. Copies, so the cached index keeps its plain labels.
+func distinctLabels(ents []*histEntity) []*histEntity {
+	count := map[string]int{}
+	for _, e := range ents {
+		count[e.label()]++
+	}
+	out := make([]*histEntity, len(ents))
+	for i, e := range ents {
+		c := *e
+		if count[e.label()] > 1 {
+			c.labelled = e.label() + " [" + e.ID + "]"
+		}
+		out[i] = &c
+	}
+	return out
 }
 
 func (e *histEntity) domain() string { return e.ID[:strings.Index(e.ID, ".")] }
@@ -621,7 +644,8 @@ func (g *Gateway) dailyText(ctx context.Context, ents []*histEntity, days int, n
 		ids[i] = e.ID
 	}
 	res, errs, err := g.wsBatch(ctx, []map[string]any{{"type": "recorder/statistics_during_period", "start_time": from.UTC().Format(time.RFC3339),
-		"end_time": now.UTC().Format(time.RFC3339), "statistic_ids": ids, "period": "day", "types": []string{"change", "mean", "min", "max"}}})
+		"end_time": now.UTC().Format(time.RFC3339), "statistic_ids": ids, "period": "day", "types": []string{"change", "mean", "min", "max"},
+		"units": map[string]any{"energy": "kWh", "power": "kW"}}}) // in kWh whatever an entity displays (MWh rounds a day to 0.04)
 	if err != nil {
 		return "", err
 	}
@@ -640,6 +664,13 @@ func (g *Gateway) dailyText(ctx context.Context, ents []*histEntity, days int, n
 	var out []string
 	for _, e := range ents {
 		rows := stats[e.ID]
+		unit := e.Unit
+		switch strings.ToLower(unit) {
+		case "wh", "kwh", "mwh", "gwh":
+			unit = "kWh"
+		case "w", "kw", "mw":
+			unit = "kW"
+		}
 		if len(rows) == 0 {
 			out = append(out, e.label()+": no long-term statistics (only sensors with a state class keep them).")
 			continue
@@ -653,9 +684,9 @@ func (g *Gateway) dailyText(ctx context.Context, ents []*histEntity, days int, n
 			case r.Change != nil:
 				meter = true
 				sum += *r.Change
-				parts = append(parts, fmt.Sprintf("%s %s", day, amountUnit(*r.Change, e.Unit)))
+				parts = append(parts, fmt.Sprintf("%s %s", day, amountUnit(*r.Change, unit)))
 			case r.Mean != nil:
-				p := fmt.Sprintf("%s avg %s", day, amountUnit(*r.Mean, e.Unit))
+				p := fmt.Sprintf("%s avg %s", day, amountUnit(*r.Mean, unit))
 				if r.Min != nil && r.Max != nil {
 					p += fmt.Sprintf(" (%s to %s)", trimFloat(*r.Min), trimFloat(*r.Max))
 				}
@@ -664,7 +695,7 @@ func (g *Gateway) dailyText(ctx context.Context, ents []*histEntity, days int, n
 		}
 		line := e.label() + ": " + strings.Join(parts, "; ")
 		if meter && len(rows) > 1 {
-			line += "; total " + amountUnit(sum, e.Unit)
+			line += "; total " + amountUnit(sum, unit)
 		}
 		out = append(out, line+".")
 	}
@@ -749,9 +780,11 @@ func when(t, now time.Time) string {
 	return t.Format("2 Jan 15:04")
 }
 
-// span: "40 s", "5 min", "3 h 12 min", "2 d 4 h".
+// span: "under a second", "40 s", "5 min", "3 h 12 min", "2 d 4 h".
 func span(d time.Duration) string {
 	switch {
+	case d < time.Second:
+		return "under a second"
 	case d < time.Minute:
 		return fmt.Sprintf("%d s", int(d.Seconds()))
 	case d < time.Hour:

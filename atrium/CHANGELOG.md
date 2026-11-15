@@ -3,6 +3,15 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.59
+
+- The Supervisor, its services and backups are refused over the WebSocket and the API, not only at /api/hassio.
+- A phone registering while an alert went out could stop the add-on; fixed.
+- A Live Activity token Apple refuses is forgotten on its own; it no longer removes other phones.
+- Camera clips resolve only for clips Atrium listed.
+- Slow or silent clients are cut off; a burst of bad tokens on the home network port is throttled properly.
+- History: brief states read "under a second", entities sharing a name are told apart, energy totals are in kWh.
+
 ## 0.9.58
 
 - History tools for AI Assist: a read-only MCP server for Home Assistant's MCP integration, so the assistant can say when something last changed, how long it was on, and daily totals. Only entities exposed to Assist; only Home Assistant may use it. See History in the documentation.

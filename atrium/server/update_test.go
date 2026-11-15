@@ -80,9 +80,22 @@ func TestTheAppUpdatesTheAddonThroughHomeAssistantsUpdateEntity(t *testing.T) {
 		data, _ := io.ReadAll(w.Body)
 		return w.Code, strings.TrimSpace(string(data))
 	}
-	// A guest may look but not update.
+	// A guest may look but not update; nor may a listed add-on (it may write the layout, never install), though
+	// mayConfigure says yes to it.
 	if code, text := post(gateway(ha, guest)); code != 403 {
 		t.Errorf("a guest's POST answered %d %s", code, text)
+	}
+	writer := gateway(ha, Identity{Login: "d7e97e69_claudecode", Addon: true})
+	if !writer.mayConfigure(Identity{Login: "d7e97e69_claudecode", Addon: true}) {
+		t.Fatal("a listed add-on should be allowed to configure (the test relies on it)")
+	}
+	if code, text := post(writer); code != 403 {
+		t.Errorf("a listed add-on's POST answered %d %s", code, text)
+	}
+	select {
+	case call := <-installed:
+		t.Fatalf("a refused POST still asked Home Assistant to install: %v", call)
+	default:
 	}
 	// The owner's POST is accepted at once; Home Assistant is asked to install, without a backup, as the add-on.
 	code, text := post(g)

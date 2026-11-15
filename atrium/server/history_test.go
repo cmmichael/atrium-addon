@@ -54,6 +54,20 @@ func TestHistoryFindsOnlyExposedEntitiesByNameAliasAndArea(t *testing.T) {
 	}
 }
 
+func TestTwoEntitiesWithOneNameAreToldApart(t *testing.T) {
+	ix := buildHistIndex([]string{"cover.garage_door", "binary_sensor.garage_door"}, nil, nil, nil, []map[string]any{
+		{"entity_id": "cover.garage_door", "state": "closed", "attributes": map[string]any{"friendly_name": "Garage Door"}},
+		{"entity_id": "binary_sensor.garage_door", "state": "off", "attributes": map[string]any{"friendly_name": "Garage Door", "device_class": "garage_door"}},
+	}, nil, "UTC")
+	found := distinctLabels(ix.find("garage door", 4))
+	if len(found) != 2 || found[0].label() == found[1].label() || !strings.HasSuffix(found[0].label(), "[cover.garage_door]") {
+		t.Errorf("labels: %q, %q", found[0].label(), found[1].label())
+	}
+	if ix.find("garage door", 4)[0].label() != "Garage Door" {
+		t.Error("the cached index was changed")
+	}
+}
+
 func ids(es []*histEntity) []string {
 	var out []string
 	for _, e := range es {
@@ -105,7 +119,7 @@ func TestHistoryDaysAndSpans(t *testing.T) {
 	if _, _, ok := dayBounds("someday", now); ok {
 		t.Error("someday was taken for a day")
 	}
-	for d, want := range map[time.Duration]string{40 * time.Second: "40 s", 5 * time.Minute: "5 min", 192 * time.Minute: "3 h 12 min", 52 * time.Hour: "2 d 4 h"} {
+	for d, want := range map[time.Duration]string{0: "under a second", 400 * time.Millisecond: "under a second", 40 * time.Second: "40 s", 5 * time.Minute: "5 min", 192 * time.Minute: "3 h 12 min", 52 * time.Hour: "2 d 4 h"} {
 		if got := span(d); got != want {
 			t.Errorf("span(%v) = %s, want %s", d, got, want)
 		}

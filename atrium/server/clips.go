@@ -206,6 +206,21 @@ func (g *Gateway) serveClips(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"not a media id"}`, http.StatusBadRequest)
 			return
 		}
+		// Only a clip Atrium listed: Home Assistant resolves any media id with the add-on's rights, and media
+		// sources hold more than cameras' clips.
+		all, _, err := g.allClips(r.Context())
+		listed := false
+		for _, clips := range all {
+			for _, c := range clips {
+				if c.ID == id {
+					listed = true
+				}
+			}
+		}
+		if err != nil || !listed {
+			http.Error(w, `{"error":"not a clip Atrium listed"}`, http.StatusNotFound)
+			return
+		}
 		url, err := g.resolveClip(r.Context(), id)
 		if err != nil || !strings.HasPrefix(url, "/api/") {
 			http.Error(w, `{"error":"Home Assistant could not find that clip"}`, http.StatusBadGateway)

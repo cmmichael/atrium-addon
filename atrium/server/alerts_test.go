@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -207,4 +208,76 @@ func TestWithoutAnAPNSKeyAlertsAreLoggedOnly(t *testing.T) {
 	if category(alert{}) != "atrium.alert" || interruption("critical") != "time-sensitive" || interruption("info") != "active" {
 		t.Error("the plain alert's category or the levels")
 	}
+}
+
+// Apple refuses one Live Activity token for good: only that token goes. A phone registered with Live Activities
+// alone (no device token) is not taken for "every phone without a device token", and the others stay.
+func TestARefusedActivityTokenForgetsOnlyThatToken(t *testing.T) {
+	apple := &fakeAPNS{gone: "deadactivity"}
+	srv := apple.server(t)
+	defer srv.Close()
+	apns, err := newAPNS(Options{APNSTeamID: "TEAM123456", APNSKeyID: "KEY1234567", APNSKey: testKey(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	apns.production, apns.sandbox = srv.URL, srv.URL
+	a := &alerts{apns: apns, path: filepath.Join(t.TempDir(), "devices.json"), home: "Test Home"}
+	type reg = struct {
+		Token      string            `json:"token"`
+		LiveStart  string            `json:"liveStart"`
+		Model      string            `json:"model"`
+		Env        string            `json:"env"`
+		Activities map[string]string `json:"activities"`
+	}
+	a.register(Identity{Login: "owner@example.com", Device: "phone"}, reg{Token: "goodtoken", Env: "production", Activities: map[string]string{"door": "deadactivity"}})
+	a.register(Identity{Login: "kid@example.com", Device: "ipad"}, reg{LiveStart: "kidlivestart", Env: "production"})
+	a.register(Identity{Login: "guest@example.com", Device: "guest"}, reg{LiveStart: "guestlivestart", Env: "production"})
+	_, problems := a.raise(alert{ID: "door", Title: "Front door open", Live: true})
+	if len(problems) != 1 || !strings.Contains(problems[0], "410") {
+		t.Fatalf("problems %v", problems)
+	}
+	if len(a.devices) != 3 {
+		t.Fatalf("%d devices left, want all 3", len(a.devices))
+	}
+	for _, d := range a.devices {
+		if d.Login == "owner@example.com" && (d.Token != "goodtoken" || d.Activities["door"] != "") {
+			t.Errorf("the owner's phone: token %q, activity %q", d.Token, d.Activities["door"])
+		}
+		if d.Login != "owner@example.com" && d.LiveStart == "" {
+			t.Errorf("%s lost its Live Activity token", d.Login)
+		}
+	}
+	a.forget("") // matches nothing
+	if len(a.devices) != 3 {
+		t.Errorf("forget(\"\") removed phones: %d left", len(a.devices))
+	}
+}
+
+// A phone registering while an alert goes out must not race the sends (it was a fatal concurrent map access).
+func TestRegisteringDuringAnAlertIsSafe(t *testing.T) {
+	apple := &fakeAPNS{}
+	srv := apple.server(t)
+	defer srv.Close()
+	apns, _ := newAPNS(Options{APNSTeamID: "TEAM123456", APNSKeyID: "KEY1234567", APNSKey: testKey(t)})
+	apns.production, apns.sandbox = srv.URL, srv.URL
+	a := &alerts{apns: apns, path: filepath.Join(t.TempDir(), "devices.json")}
+	type reg = struct {
+		Token      string            `json:"token"`
+		LiveStart  string            `json:"liveStart"`
+		Model      string            `json:"model"`
+		Env        string            `json:"env"`
+		Activities map[string]string `json:"activities"`
+	}
+	a.register(Identity{Login: "owner@example.com", Device: "phone"}, reg{Token: "t", LiveStart: "s", Env: "production"})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 50; i++ {
+			a.register(Identity{Login: "owner@example.com", Device: "phone"}, reg{Token: "t", LiveStart: "s", Env: "production", Activities: map[string]string{fmt.Sprint("a", i): "x"}})
+		}
+	}()
+	for i := 0; i < 20; i++ {
+		a.raise(alert{ID: fmt.Sprint("a", i), Title: fmt.Sprint("alert ", i), Live: true})
+	}
+	<-done
 }

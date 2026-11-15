@@ -150,17 +150,32 @@ func (a *alerts) register(id Identity, body struct {
 	return d
 }
 
+// forget drops one token Apple refused for good: a device token takes its phone with it (the app is gone from it);
+// a Live Activity's start token or one activity's token goes alone, and the phone keeps the rest. An empty token
+// matches nothing.
 func (a *alerts) forget(token string) {
+	if token == "" {
+		return
+	}
 	a.mu.Lock()
+	defer a.mu.Unlock()
 	kept := a.devices[:0]
 	for _, d := range a.devices {
-		if d.Token != token {
-			kept = append(kept, d)
+		if d.Token == token {
+			continue
 		}
+		if d.LiveStart == token {
+			d.LiveStart = ""
+		}
+		for id, t := range d.Activities {
+			if t == token {
+				delete(d.Activities, id)
+			}
+		}
+		kept = append(kept, d)
 	}
 	a.devices = kept
 	a.save()
-	a.mu.Unlock()
 }
 
 // serveDevices: POST registers the caller's device (anyone allowed in: it is their own phone); GET lists the
@@ -440,13 +455,15 @@ func (a *alerts) raise(al alert) (sent int, problems []string) {
 	if len(a.recent) > 50 {
 		a.recent = a.recent[len(a.recent)-50:]
 	}
-	var to []*pushDevice
+	// What the sends need, copied under the lock: register may change a device while the pushes are on their way.
+	type target struct{ login, device, env, token, liveStart, activity string }
+	var to []target
 	for _, d := range a.devices {
 		if len(al.To) > 0 && !containsFold(al.To, d.Login) {
 			continue
 		}
-		if d.Token != "" || d.LiveStart != "" || d.Activities[al.ID] != "" {
-			to = append(to, d)
+		if t := (target{d.Login, d.Device, d.Env, d.Token, d.LiveStart, d.Activities[al.ID]}); t.token != "" || t.liveStart != "" || t.activity != "" {
+			to = append(to, t)
 		}
 	}
 	home := a.home
@@ -457,37 +474,38 @@ func (a *alerts) raise(al alert) (sent int, problems []string) {
 	if len(to) == 0 {
 		return 0, []string{"no phone has registered for alerts yet"}
 	}
-	var gone []string
+	var gone []string // the tokens Apple says are no longer good, each on its own
 	for _, d := range to {
-		note := func(err error) {
+		send := func(p push) {
+			err := a.apns.send(p)
 			if err == nil {
 				sent++
 				return
 			}
 			var ae *apnsError
 			if ok := asAPNSError(err, &ae); ok && ae.status == 410 {
-				gone = append(gone, d.Token)
+				gone = append(gone, p.token)
 			}
-			problems = append(problems, fmt.Sprintf("%s (%s): %v", d.Login, d.Device, err))
+			problems = append(problems, fmt.Sprintf("%s (%s): %v", d.login, d.device, err))
 		}
-		if d.Token != "" {
+		if d.token != "" {
 			if al.Clear {
-				note(a.apns.send(push{token: d.Token, env: d.Env, pushType: "background", collapse: al.ID, priority: 5,
-					payload: map[string]any{"aps": map[string]any{"content-available": 1}, "atrium": map[string]any{"clear": al.ID}}}))
+				send(push{token: d.token, env: d.env, pushType: "background", collapse: al.ID, priority: 5,
+					payload: map[string]any{"aps": map[string]any{"content-available": 1}, "atrium": map[string]any{"clear": al.ID}}})
 			} else {
-				note(a.apns.send(push{token: d.Token, env: d.Env, pushType: "alert", collapse: al.ID, payload: notificationPayload(al, home)}))
+				send(push{token: d.token, env: d.env, pushType: "alert", collapse: al.ID, payload: notificationPayload(al, home)})
 			}
 		}
 		if al.Live || al.Clear {
-			if running := d.Activities[al.ID]; running != "" {
-				note(a.apns.send(push{token: running, env: d.Env, pushType: "liveactivity", payload: activityPayload(al, home, al.Clear)}))
-			} else if al.Live && !al.Clear && d.LiveStart != "" {
-				note(a.apns.send(push{token: d.LiveStart, env: d.Env, pushType: "liveactivity", payload: activityStartPayload(al, home)}))
+			if d.activity != "" {
+				send(push{token: d.activity, env: d.env, pushType: "liveactivity", payload: activityPayload(al, home, al.Clear)})
+			} else if al.Live && !al.Clear && d.liveStart != "" {
+				send(push{token: d.liveStart, env: d.env, pushType: "liveactivity", payload: activityStartPayload(al, home)})
 			}
 		}
 	}
 	for _, t := range gone {
-		a.forget(t) // Apple says the app is gone from that phone
+		a.forget(t)
 	}
 	return sent, problems
 }

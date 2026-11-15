@@ -105,7 +105,29 @@ func (t *tokenCheck) check(ctx context.Context, core interface{ String() string 
 		t.mu.Unlock()
 		return tokenThrottled
 	}
+	// Counted as a failure while Home Assistant is asked, so parallel guesses cannot all pass the count; taken
+	// back if the token is good or Home Assistant does not answer.
+	t.failed[peer] = append(recent, now)
+	if len(t.failed) > 256 { // peers with nothing recent go
+		for p, at := range t.failed {
+			if len(at) == 0 || now.Sub(at[len(at)-1]) >= 10*time.Minute {
+				delete(t.failed, p)
+			}
+		}
+	}
 	t.mu.Unlock()
+	takeBack := func() { // under t.mu
+		at := t.failed[peer]
+		for i := len(at) - 1; i >= 0; i-- {
+			if at[i].Equal(now) {
+				t.failed[peer] = append(at[:i:i], at[i+1:]...)
+				break
+			}
+		}
+		if len(t.failed[peer]) == 0 {
+			delete(t.failed, peer)
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
@@ -113,11 +135,17 @@ func (t *tokenCheck) check(ctx context.Context, core interface{ String() string 
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return tokenBad // Home Assistant did not answer: not the caller's fault, so not counted
+		t.mu.Lock()
+		takeBack() // Home Assistant did not answer: not the caller's fault, so not counted
+		t.mu.Unlock()
+		return tokenBad
 	}
 	resp.Body.Close()
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusForbidden {
+		takeBack()
+	}
 	if resp.StatusCode == http.StatusOK {
 		for k, until := range t.ok {
 			if now.After(until) {
@@ -126,9 +154,6 @@ func (t *tokenCheck) check(ctx context.Context, core interface{ String() string 
 		}
 		t.ok[key] = now.Add(tokenGoodFor)
 		return tokenGood
-	}
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		t.failed[peer] = append(t.failed[peer], now)
 	}
 	return tokenBad
 }

@@ -268,7 +268,7 @@ add-on's data. The add-on's log says what it did.
 
 - Atrium is its own machine on your tailnet (named `atrium` unless you change it), using Tailscale's `tsnet`
   library. Tailscale is not installed on the Home Assistant machine, and the machine itself is not exposed.
-- Only Home Assistant's API and local files are reachable through Atrium; its login pages and the Supervisor are not.
+- Only Home Assistant's API and local files are reachable through Atrium; its login pages, the Supervisor, its services and backups are not.
   Web pages from other sites cannot use it.
 - With HTTPS certificates enabled for your tailnet (Tailscale admin console → DNS), the address is `https://`;
   otherwise plain HTTP inside the tailnet's own encryption.

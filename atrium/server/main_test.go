@@ -260,10 +260,57 @@ func TestTheSupervisorIsNotReachable(t *testing.T) {
 	ha := fakeHA(t)
 	defer ha.Close()
 	g := gateway(ha, Identity{Login: "owner@example.com"})
-	for path, want := range map[string]int{"/api/hassio/supervisor/info": 403, "/api/hassio": 403, "/api/hassio_ingress/x": 403, "/api/hassio_app/x": 403, "/api/states": 200, "/api/history/period": 200} {
+	for path, want := range map[string]int{"/api/hassio/supervisor/info": 403, "/api/hassio": 403, "/api/hassio_ingress/x": 403, "/api/hassio_app/x": 403,
+		"/api/services/hassio/host_reboot": 403, "/api/services/HASSIO/addon_stop": 403, "/api/services/x/../hassio/backup_full": 400 /* refused earlier: no dot segments */, "/api/services/backup/create": 403,
+		"/api/backup/download/x": 403, "/api/states": 200, "/api/history/period": 200, "/api/services/light/turn_on": 200} {
 		if code, _ := get(t, g, path); code != want {
 			t.Errorf("%s answered %d, want %d", path, code, want)
 		}
+	}
+}
+
+// Over the WebSocket too: Supervisor and backup requests are refused here, never forwarded; the rest passes.
+func TestTheSupervisorIsNotReachableOverTheWebSocket(t *testing.T) {
+	for msg, refused := range map[string]bool{
+		`{"id":5,"type":"supervisor/api","endpoint":"/host/reboot","method":"post"}`:                         true,
+		`{"id":6,"type":"Supervisor/API"}`:                                                                   true,
+		`{"id":7,"type":"hassio/update/addon"}`:                                                              true,
+		`{"id":8,"type":"backup/generate"}`:                                                                  true,
+		`{"id":9,"type":"call_service","domain":"hassio","service":"host_reboot"}`:                           true,
+		`{"id":10,"type":"call_service","domain":" Backup ","service":"create"}`:                             true,
+		`{"id":11,"type":"execute_script","sequence":[{"action":"hassio.addon_stop","data":{"addon":"x"}}]}`: true,
+		`{"id":12,"type":"call_service","domain":"light","service":"turn_on"}`:                               false,
+		`{"id":13,"type":"subscribe_entities"}`:                                                              false,
+		`{"id":14,"type":"execute_script","sequence":[{"action":"light.turn_on"}]}`:                          false,
+		`not json`: false,
+	} {
+		if _, got := supervisorMessage([]byte(msg)); got != refused {
+			t.Errorf("%s: refused %v, want %v", msg, got, refused)
+		}
+	}
+	ha := fakeHA(t)
+	defer ha.Close()
+	g := gateway(ha, Identity{Login: "owner@example.com"})
+	front := httptest.NewServer(g)
+	defer front.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(front.URL, "http")+"/api/websocket", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+	c.Read(ctx) // auth_required
+	c.Write(ctx, websocket.MessageText, []byte(`{"type":"auth","access_token":"x"}`))
+	c.Read(ctx) // auth_ok
+	c.Write(ctx, websocket.MessageText, []byte(`{"id":5,"type":"supervisor/api","endpoint":"/host/reboot","method":"post"}`))
+	_, answer, _ := c.Read(ctx)
+	if !strings.Contains(string(answer), `"success":false`) || !strings.Contains(string(answer), `"id":5`) {
+		t.Errorf("supervisor/api answered %s", answer)
+	}
+	c.Write(ctx, websocket.MessageText, []byte(`{"id":6,"type":"ping"}`))
+	if _, echoed, _ := c.Read(ctx); !strings.Contains(string(echoed), `"type":"ping"`) { // the fake echoes what reaches it
+		t.Errorf("a ping did not reach Home Assistant: %s", echoed)
 	}
 }
 
