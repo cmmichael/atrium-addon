@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/coder/websocket"
 )
@@ -118,5 +120,43 @@ func TestAIAssistSettingsGoThroughTheAgentsOwnForm(t *testing.T) {
 	}
 	if code, ready := call(g, "POST", "/atrium/assist/config/ready", ""); code != 200 || ready["ready"] != true {
 		t.Errorf("ready: %d %v", code, ready)
+	}
+}
+
+// A form left open is given up in Home Assistant when another starts, and the kept prompts stop at fifty.
+func TestAbandonedFormsAreGivenUpAndPromptsAreCapped(t *testing.T) {
+	var steps []string
+	var mu sync.Mutex
+	ha := assistHA(t, &steps, &mu)
+	defer ha.Close()
+	base, _ := url.Parse(ha.URL)
+	g := gateway(ha, Identity{Login: "owner@example.com", Owner: true})
+	g.Addon.Base = base
+	g.assistCfg.prompts = filepath.Join(t.TempDir(), "prompts.jsonl")
+	start := func() {
+		r := httptest.NewRequest("POST", "/atrium/assist/config/flow", nil)
+		g.ServeHTTP(httptest.NewRecorder(), r)
+	}
+	start()
+	start() // the page reopened: the first form goes
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		mu.Lock()
+		joined := strings.Join(steps, "\n")
+		mu.Unlock()
+		if strings.Contains(joined, "DELETE /api/config/config_entries/subentries/flow/f1") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the abandoned form was not given up; Home Assistant saw:\n%s", joined)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	for i := 0; i < 70; i++ {
+		g.keepPrompt("owner@example.com", "Claude", fmt.Sprint("prompt ", i))
+	}
+	kept, _ := g.keptPrompts(1000)
+	if len(kept) != 50 || kept[0].Prompt != "prompt 69" || kept[49].Prompt != "prompt 20" {
+		t.Errorf("%d kept, newest %q, oldest %q", len(kept), kept[0].Prompt, kept[len(kept)-1].Prompt)
 	}
 }

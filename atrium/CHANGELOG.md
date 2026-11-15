@@ -3,6 +3,10 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.66
+
+- AI Assist settings: a form left open (the page closed, or another form started) is given up in Home Assistant too, where it would linger until a restart; the kept prompts stop at the last fifty; with recommended settings ticked, the page says the integration then chooses the model.
+
 ## 0.9.65
 
 - AI Assist settings in Atrium's web app (Home → AI Assist, for the owner and administrators): the agent the preferred pipeline uses, its model, options, prompt and tool sets through Home Assistant's own settings form for it (so any agent's options appear), earlier prompts to restore, and connecting Atrium's history tools in one tap. After a change Atrium waits for the agent to load and asks it one question before saying it is ready. Each change is logged with who made it.

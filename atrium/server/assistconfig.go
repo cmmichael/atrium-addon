@@ -228,18 +228,32 @@ func (g *Gateway) startAssistFlow(ctx context.Context, id Identity, kind string)
 	return out, nil
 }
 
+// rememberFlow keeps a flow this add-on started. Forms left open (a page closed half-way) are given up in Home
+// Assistant too, where they would otherwise linger until it restarts: after fifteen minutes, or at once when a
+// new form for the same thing starts.
 func (g *Gateway) rememberFlow(id string, f assistFlow) {
 	g.assistCfg.mu.Lock()
-	defer g.assistCfg.mu.Unlock()
 	if g.assistCfg.flows == nil {
 		g.assistCfg.flows = map[string]assistFlow{}
 	}
-	for k, old := range g.assistCfg.flows { // a flow left open an hour is forgotten
-		if time.Since(old.at) > time.Hour {
+	var stale []string
+	for k, old := range g.assistCfg.flows {
+		if time.Since(old.at) > 15*time.Minute || old.kind == f.kind {
+			stale = append(stale, k)
 			delete(g.assistCfg.flows, k)
 		}
 	}
 	g.assistCfg.flows[id] = f
+	g.assistCfg.mu.Unlock()
+	for _, k := range stale {
+		go func(k string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			// Either kind of flow: one of the two paths is the right one, the other answers 404.
+			g.haREST(ctx, "DELETE", "/api/config/config_entries/subentries/flow/"+k, nil, nil)
+			g.haREST(ctx, "DELETE", "/api/config/config_entries/flow/"+k, nil, nil)
+		}(k)
+	}
 }
 
 // stepAssistFlow answers a step of a flow this add-on started (POST: the step's data; DELETE: give up).
@@ -377,8 +391,20 @@ func (g *Gateway) keepPrompt(login, agent, prompt string) {
 		log.Printf("AI Assist: could not keep the previous prompt: %v", err)
 		return
 	}
-	defer f.Close()
 	f.Write(append(data, '\n'))
+	f.Close()
+	// The last fifty are enough to restore from; the file holds the house's prompts, so it does not grow forever.
+	if kept, err := g.keptPrompts(1000); err == nil && len(kept) > 50 {
+		var b strings.Builder
+		for i := 49; i >= 0; i-- {
+			line, _ := json.Marshal(kept[i])
+			b.Write(append(line, '\n'))
+		}
+		tmp := g.assistCfg.prompts + ".new"
+		if os.WriteFile(tmp, []byte(b.String()), 0o600) == nil {
+			os.Rename(tmp, g.assistCfg.prompts)
+		}
+	}
 }
 
 // keptPrompts are the prompts replaced, newest first.
