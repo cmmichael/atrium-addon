@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.54"
+const version = "0.9.55"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -540,7 +540,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		// Just after a start, Tailscale has not said yet who signed this machine in, so this caller may well be
 		// the owner. Not a refusal (the app would sign out on one): not yet.
 		w.Header().Set("Retry-After", "5")
-		http.Error(w, "Atrium is still finding out who signed it in to the tailnet; try again in a moment", http.StatusServiceUnavailable)
+		http.Error(w, "Still checking the tailnet sign-in. Try again in a moment", http.StatusServiceUnavailable)
 		return
 	}
 	if ok && !id.HomeAssistant && !id.Addon {
