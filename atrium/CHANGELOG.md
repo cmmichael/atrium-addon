@@ -3,6 +3,12 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.50
+
+- Each app connection's log line says how the phone reaches the add-on over the tailnet: directly, or relayed
+  through a Tailscale server. A relayed path from a mobile network is the usual cause of slow connects away from home.
+- Health counts the TLS handshakes apps started and gave up on (tailnet.handshakesDied, lastDied).
+
 ## 0.9.49
 
 - The search field no longer changes as the app connects: once this home has answered AI Assist, the field offers

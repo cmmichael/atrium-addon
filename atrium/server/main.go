@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.49"
+const version = "0.9.50"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -128,12 +128,14 @@ type Gateway struct {
 
 	mu        sync.Mutex
 	home      string
-	homeAsked time.Time  // when Home Assistant was last asked for the name and did not say
-	updateID  string     // the add-on's update entity in Home Assistant, once found (update.go)
-	telemetry telemetry  // the apps' diagnostics (telemetry.go)
-	assist    *assistLog // AI Assist's conversations, kept on disk (assistlog.go)
-	dreams    dreamer    // AI Assist's memory, consolidated each night (dream.go)
-	alerts    *alerts    // the phones that take alerts, and the sending (alerts.go, apns.go)
+	homeAsked time.Time    // when Home Assistant was last asked for the name and did not say
+	updateID  string       // the add-on's update entity in Home Assistant, once found (update.go)
+	telemetry telemetry    // the apps' diagnostics (telemetry.go)
+	assist    *assistLog   // AI Assist's conversations, kept on disk (assistlog.go)
+	paths     statusSource // Tailscale's view of the peers: how each phone reaches the add-on (tailpath.go)
+	tls       handshakes   // handshakes callers gave up on
+	dreams    dreamer      // AI Assist's memory, consolidated each night (dream.go)
+	alerts    *alerts      // the phones that take alerts, and the sending (alerts.go, apns.go)
 	// For /atrium/health (health.go): when this process started, the last word from Home Assistant, the layout's
 	// entities Home Assistant reports unavailable, the newest add-on version seen.
 	started      time.Time
@@ -630,7 +632,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		http.ServeFile(w, r, filepath.Join(g.SkillDir, name))
 	case r.URL.Path == "/api/websocket":
-		log.Printf("%s (%s) connected from %s", id.Login, id.Device, r.RemoteAddr)
+		log.Printf("%s (%s) connected from %s%s", id.Login, id.Device, r.RemoteAddr, g.pathOf(r.RemoteAddr))
 		g.serveWebSocket(w, r, id, up)
 	case strings.HasPrefix(r.URL.Path, "/api/hassio"): // /api/hassio/…, /api/hassio_ingress/…, /api/hassio_app/…
 		http.Error(w, "the Supervisor is not reachable through Atrium", http.StatusForbidden) // the app has no use for it
@@ -1082,6 +1084,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Tailscale: %v", err)
 	}
+	g.paths = lc
 	// While Up waits for the sign-in, the panel shows the link: the state is read every second until it is Running.
 	joined := make(chan struct{})
 	go func() {

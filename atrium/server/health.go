@@ -36,6 +36,10 @@ type healthReport struct {
 		State   string `json:"state"` // starting, needs-login, up
 		Address string `json:"address,omitempty"`
 		Owner   string `json:"owner,omitempty"`
+		// TLS handshakes an app started and gave up on since the add-on started: many, with slow connects, is a
+		// slow path (a mobile network, a relay), not the add-on.
+		HandshakesDied int64      `json:"handshakesDied"`
+		LastDied       *time.Time `json:"lastDied,omitempty"`
 	} `json:"tailnet"`
 	Mapping struct {
 		Exists   bool       `json:"exists"`
@@ -81,6 +85,11 @@ func (g *Gateway) serveHealth(w http.ResponseWriter, r *http.Request, id Identit
 		h.Apps.LastContact, h.Apps.AgeSeconds, h.Apps.Who = &t, &age, g.appWho
 	}
 	h.Tailnet.State, h.Tailnet.Address, h.Tailnet.Owner = g.setup.State, g.setup.Address, g.Owner
+	h.Tailnet.HandshakesDied = g.tls.died.Load()
+	if last := g.tls.last.Load(); last > 0 {
+		t := time.Unix(last, 0)
+		h.Tailnet.LastDied = &t
+	}
 	h.Mapping.Exists, h.Mapping.Custom, h.Mapping.Rooms, h.Mapping.Stale = !g.mappingAt.IsZero(), g.mapping.Custom(), g.rooms, len(g.stale)
 	if !g.mappingAt.IsZero() {
 		at := g.mappingAt
