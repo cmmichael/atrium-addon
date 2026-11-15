@@ -3,6 +3,11 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.51
+
+- The apps' diagnostics lines say which build wrote them, when it is not the build sending them (lines wait for
+  the next send, which may come after an update).
+
 ## 0.9.50
 
 - Each app connection's log line says how the phone reaches the add-on over the tailnet: directly, or relayed

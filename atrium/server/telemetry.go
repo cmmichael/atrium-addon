@@ -23,6 +23,7 @@ type telemetryEvent struct {
 	Time   time.Time `json:"time"`
 	Kind   string    `json:"kind"`
 	Detail string    `json:"detail"`
+	Build  string    `json:"build,omitempty"` // the build that wrote the line, which may be older than the one sending it
 }
 
 type telemetryBatch struct {
@@ -104,7 +105,11 @@ func (t *telemetry) take(id Identity, b telemetryBatch) {
 		if e.Detail != "" {
 			line += ": " + e.Detail
 		}
-		log.Printf("app %s (%s, %s, app %s) %s · %s", id.Login, firstNonEmpty(id.Device, b.Device), b.OS, b.App, e.Time.Local().Format("15:04:05"), strings.TrimSpace(line))
+		app := b.App
+		if e.Build != "" && !strings.Contains(b.App, e.Build) {
+			app += ", written by " + e.Build
+		}
+		log.Printf("app %s (%s, %s, app %s) %s · %s", id.Login, firstNonEmpty(id.Device, b.Device), b.OS, app, e.Time.Local().Format("15:04:05"), strings.TrimSpace(line))
 	}
 }
 
