@@ -3,6 +3,11 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.52
+
+- Health says how many app connections are open right now (apps.open): an update restarts the add-on and drops
+  them, so it is best done when none are.
+
 ## 0.9.51
 
 - The apps' diagnostics lines say which build wrote them, when it is not the build sending them (lines wait for

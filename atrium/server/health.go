@@ -31,6 +31,8 @@ type healthReport struct {
 		LastContact *time.Time `json:"lastContact,omitempty"`
 		AgeSeconds  *int       `json:"ageSeconds,omitempty"` // absent until an app has been heard from
 		Who         string     `json:"who,omitempty"`
+		// App connections open right now: an update restarts the add-on and drops them, so wait for none.
+		Open int64 `json:"open"`
 	} `json:"apps"`
 	Tailnet struct {
 		State   string `json:"state"` // starting, needs-login, up
@@ -85,6 +87,7 @@ func (g *Gateway) serveHealth(w http.ResponseWriter, r *http.Request, id Identit
 		h.Apps.LastContact, h.Apps.AgeSeconds, h.Apps.Who = &t, &age, g.appWho
 	}
 	h.Tailnet.State, h.Tailnet.Address, h.Tailnet.Owner = g.setup.State, g.setup.Address, g.Owner
+	h.Apps.Open = int64(g.open.Load())
 	h.Tailnet.HandshakesDied = g.tls.died.Load()
 	if last := g.tls.last.Load(); last > 0 {
 		t := time.Unix(last, 0)
