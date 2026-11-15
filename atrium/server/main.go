@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.64"
+const version = "0.9.65"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -105,6 +105,7 @@ type Upstream struct {
 type Gateway struct {
 	history          historyCache
 	reach            reachState           // the last tailnet reachability check (reachcheck.go)
+	assistCfg        assistConfigState    // AI Assist's settings (assistconfig.go)
 	drafting         sync.Mutex           // one atrium_draft at a time
 	HistoryTokenPath string               // the history endpoint's secret is kept here (/data/history-token)
 	isCore           func(ip string) bool // tests: whether a peer is Home Assistant itself
@@ -649,6 +650,8 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		}
 	case r.URL.Path == "/mcp":
 		g.serveMCP(w, r, id)
+	case strings.HasPrefix(r.URL.Path, "/atrium/assist/config"):
+		g.serveAssistConfig(w, r, id)
 	case r.URL.Path == "/atrium/history-mcp":
 		// Where Home Assistant's MCP integration finds the history tools, for the owner, administrators and listed
 		// add-ons: the URL holds the secret, and only Home Assistant itself may use it.
@@ -1054,6 +1057,7 @@ func main() {
 	g.appsPath = env("ATRIUM_APPS", "/data/apps.json")
 	g.assist = &assistLog{path: env("ATRIUM_ASSIST", "/data/assist.jsonl"), max: 8 << 20}
 	g.HistoryTokenPath = env("ATRIUM_HISTORY_TOKEN", "/data/history-token")
+	g.assistCfg.prompts = env("ATRIUM_ASSIST_PROMPTS", "/data/assist-prompts.jsonl")
 	g.dreams.dir = env("ATRIUM_MEMORY", "/data/memory")
 	if apns, err := newAPNS(opts); err != nil {
 		log.Printf("alerts: %v; alerts are logged only until the options are right", err)

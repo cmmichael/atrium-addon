@@ -3,6 +3,10 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.65
+
+- AI Assist settings in Atrium's web app (Home → AI Assist, for the owner and administrators): the agent the preferred pipeline uses, its model, options, prompt and tool sets through Home Assistant's own settings form for it (so any agent's options appear), earlier prompts to restore, and connecting Atrium's history tools in one tap. After a change Atrium waits for the agent to load and asks it one question before saying it is ready. Each change is logged with who made it.
+
 ## 0.9.64
 
 - Speakers: where speakers are placed in rooms, players in no room are not guessed (Music Assistant calls every Mac and television it can play to a speaker), and a Music Assistant player that twins a listed speaker by name is never listed on its own. 0.9.63 listed 23 such players in one home.
