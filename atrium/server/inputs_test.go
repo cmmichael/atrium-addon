@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -161,5 +162,51 @@ func TestTheLayoutsInputsComeFirst(t *testing.T) {
 	}
 	if _, done, _ := g.layoutInput(context.Background(), []*histEntity{{ID: "media_player.other"}}, states, "ps5"); done {
 		t.Error("a player without layout inputs was taken")
+	}
+}
+
+// A release that changes the tools reloads Home Assistant's MCP entry once, so the agent sees them; the next start
+// with the same tools does nothing.
+func TestChangedToolsReloadTheMCPEntryOnce(t *testing.T) {
+	var mu sync.Mutex
+	var reloads []string
+	ha := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/websocket" {
+			mu.Lock()
+			reloads = append(reloads, r.Method+" "+r.URL.Path)
+			mu.Unlock()
+			w.Write([]byte(`{"require_restart":false}`))
+			return
+		}
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.CloseNow()
+		ctx := r.Context()
+		c.Write(ctx, websocket.MessageText, []byte(`{"type":"auth_required"}`))
+		c.Read(ctx)
+		c.Write(ctx, websocket.MessageText, []byte(`{"type":"auth_ok"}`))
+		for {
+			_, msg, err := c.Read(ctx)
+			if err != nil {
+				return
+			}
+			var m map[string]any
+			json.Unmarshal(msg, &m)
+			out, _ := json.Marshal(map[string]any{"id": m["id"], "type": "result", "success": true, "result": []any{
+				map[string]any{"entry_id": "e1", "domain": "mcp", "title": "atrium-history"}, map[string]any{"entry_id": "e2", "domain": "hue", "title": "Hue"}}})
+			c.Write(ctx, websocket.MessageText, out)
+		}
+	}))
+	defer ha.Close()
+	g := gateway(ha, Identity{})
+	g.HistoryTokenPath = filepath.Join(t.TempDir(), "history-token")
+	g.refreshToolsInHA(context.Background())
+	g.refreshToolsInHA(context.Background())
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(reloads, "|") != "POST /api/config/config_entries/entry/e1/reload" {
+		t.Errorf("reloads: %q", reloads)
 	}
 }

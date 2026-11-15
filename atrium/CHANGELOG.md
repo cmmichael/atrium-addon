@@ -3,6 +3,13 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.70
+
+- When a release adds or changes AI Assist's tools from this add-on, the add-on reloads Home Assistant's connection to them by itself (once, a minute after it starts), so the agent sees the new tools without a manual reload.
+- `GET /atrium/history-mcp` counts every tool, the input tool included.
+- A player that does not say which input it is on is described as such, not as having none selected.
+- After saving AI Assist's settings, the warm-up question waits 20 seconds and tries once more, since the first answer after a save can hang while the next comes at once.
+
 ## 0.9.69
 
 - AI Assist can change a receiver's or TV's input ("set the receiver to video"), which Home Assistant's own Assist tools cannot. The tool comes with the history tools, so a connected agent has it with no further setup. Where the layout gives a remote its own inputs (a script or a matrix choice for each), those are used; otherwise the player's own source list. Only media players exposed to Assist, only inputs that exist; a name that fits two inputs, or none, is answered with the list instead of a guess. A player that is off is turned on first. Each change is logged.

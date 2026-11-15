@@ -10,9 +10,13 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -123,7 +127,7 @@ func (g *Gateway) selectInput(ctx context.Context, ix *histIndex, player, input 
 		if len(p.sources) == 0 {
 			return p.e.label() + " lists no inputs right now" + map[bool]string{true: " (it is off)", false: ""}[p.state == "off"] + ".", nil
 		}
-		return fmt.Sprintf("%s inputs: %s. Now: %s.", p.e.label(), strings.Join(p.sources, ", "), or(p.now, "none")), nil
+		return fmt.Sprintf("%s inputs: %s. Now: %s.", p.e.label(), strings.Join(p.sources, ", "), or(p.now, "it does not report which")), nil
 	}
 	src, why := pickSource(p.sources, input)
 	if src == "" {
@@ -243,4 +247,44 @@ func firstErr(err error, errs []error) error {
 		}
 	}
 	return nil
+}
+
+// haMCPTools is every tool the MCP server offers Home Assistant: the history tools and the input tool.
+func haMCPTools() []map[string]any {
+	return append(append([]map[string]any{}, historyTools...), inputTools...)
+}
+
+// toolsSignature names the tools and their schemas: when a release changes it, Home Assistant's MCP client, which
+// lists the tools once when its entry loads, has to load the entry again to see them.
+func toolsSignature() string {
+	data, _ := json.Marshal(haMCPTools())
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// refreshToolsInHA reloads Home Assistant's MCP entry for these tools when they changed since the last run, so a
+// release's new or changed tool reaches the agent without anyone reloading it by hand. Nothing when the entry is not
+// set up; the signature is kept only once the reload went through (or there was nothing to reload).
+func (g *Gateway) refreshToolsInHA(ctx context.Context) {
+	if g.HistoryTokenPath == "" {
+		return
+	}
+	path := filepath.Join(filepath.Dir(g.HistoryTokenPath), "history-tools")
+	sig := toolsSignature()
+	if old, _ := os.ReadFile(path); strings.TrimSpace(string(old)) == sig {
+		return
+	}
+	entry, err := g.historyConnected(ctx)
+	if err != nil {
+		log.Printf("history: could not look for the MCP entry to reload: %v", err)
+		return
+	}
+	if entry != "" {
+		if err := g.haREST(ctx, "POST", "/api/config/config_entries/entry/"+entry+"/reload", nil, nil); err != nil {
+			log.Printf("history: the tools changed, but reloading Home Assistant's MCP entry failed: %v", err)
+			return
+		}
+		log.Printf("history: the tools changed (%d now); reloaded Home Assistant's MCP entry so the agent sees them", len(haMCPTools()))
+	}
+	os.WriteFile(path, []byte(sig+"\n"), 0o600)
 }

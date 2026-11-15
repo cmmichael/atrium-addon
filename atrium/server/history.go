@@ -138,7 +138,7 @@ func (g *Gateway) serveHistoryMCP(w http.ResponseWriter, r *http.Request, peer s
 	case "ping":
 		out["result"] = map[string]any{}
 	case "tools/list":
-		out["result"] = map[string]any{"tools": append(append([]map[string]any{}, historyTools...), inputTools...)}
+		out["result"] = map[string]any{"tools": haMCPTools()}
 	case "tools/call":
 		var p struct {
 			Name      string         `json:"name"`

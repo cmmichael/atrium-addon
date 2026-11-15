@@ -356,16 +356,26 @@ func (g *Gateway) assistReady(ctx context.Context) (map[string]any, error) {
 	if a.EntryState != "loaded" {
 		return map[string]any{"ready": false, "state": a.EntryState}, nil
 	}
+	// The first question after a save sometimes hangs past a minute and the next one answers at once (seen 3 times in
+	// 6): a short wait, then one more try.
 	warm := time.Now()
-	wctx, cancel := context.WithTimeout(ctx, 45*time.Second)
-	defer cancel()
-	_, errs, err := g.wsBatch(wctx, []map[string]any{{"type": "conversation/process", "text": "What time is it?", "agent_id": a.Entity}})
-	if err == nil && errs[0] != nil {
-		err = errs[0]
+	for try := 0; ; try++ {
+		wctx, cancel := context.WithTimeout(ctx, warmWait)
+		_, errs, werr := g.wsBatch(wctx, []map[string]any{{"type": "conversation/process", "text": "What time is it?", "agent_id": a.Entity}})
+		cancel()
+		if werr == nil && errs[0] != nil {
+			werr = errs[0]
+		}
+		err = werr
+		if err == nil || try == 1 || ctx.Err() != nil {
+			break
+		}
 	}
 	return map[string]any{"ready": err == nil, "state": a.EntryState, "reloadMs": warm.Sub(start).Milliseconds(),
 		"warmMs": time.Since(warm).Milliseconds(), "error": errString(err)}, nil
 }
+
+var warmWait = 20 * time.Second
 
 func errString(err error) string {
 	if err == nil {

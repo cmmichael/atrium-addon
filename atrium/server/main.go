@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.69"
+const version = "0.9.70"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -660,7 +660,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"url": g.historyURL(), "transport": "streamable HTTP (JSON-RPC over POST)", "tools": len(historyTools)})
+		json.NewEncoder(w).Encode(map[string]any{"url": g.historyURL(), "transport": "streamable HTTP (JSON-RPC over POST)", "tools": len(haMCPTools())})
 	case strings.HasPrefix(r.URL.Path, "/atrium/skill/") && g.SkillDir != "":
 		name := path.Base(r.URL.Path) // SKILL.md, draft.py, mapping.md: so "point your Claude at this URL" works too
 		if f, err := os.Stat(filepath.Join(g.SkillDir, name)); err != nil || f.IsDir() {
@@ -1112,6 +1112,12 @@ func main() {
 		go g.watchAlerts()
 		go g.watchDreams()
 		go func() { time.Sleep(20 * time.Second); g.knownUpdate() }() // the update status, ready for the first hello
+		go func() {                                                   // a release that changes the tools: Home Assistant's MCP client sees them only after a reload
+			time.Sleep(45 * time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			g.refreshToolsInHA(ctx)
+			cancel()
+		}()
 		go func() {
 			home := g.homeName(context.Background())
 			g.alerts.mu.Lock()
@@ -1169,6 +1175,12 @@ func main() {
 	go g.watchAlerts()
 	go g.watchDreams()
 	go func() { time.Sleep(20 * time.Second); g.knownUpdate() }() // the update status, ready for the first hello
+	go func() {                                                   // a release that changes the tools: Home Assistant's MCP client sees them only after a reload
+		time.Sleep(45 * time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		g.refreshToolsInHA(ctx)
+		cancel()
+	}()
 	go func() {
 		home := g.homeName(context.Background())
 		g.alerts.mu.Lock()
