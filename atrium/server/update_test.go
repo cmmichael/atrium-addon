@@ -115,3 +115,17 @@ func TestTheAppUpdatesTheAddonThroughHomeAssistantsUpdateEntity(t *testing.T) {
 		t.Errorf("without a slug, GET answered %d %v", code, body)
 	}
 }
+
+func TestTheUpdateEntityIsTheUpdateNotTheSensorWithTheSameID(t *testing.T) {
+	// The Supervisor's sensor "newest version" and its update entity share the unique id; the sensor comes first.
+	entries := []any{
+		map[string]any{"platform": "hassio", "unique_id": "df84f1fd_atrium_version_latest", "entity_id": "sensor.atrium_newest_version"},
+		map[string]any{"platform": "hassio", "unique_id": "df84f1fd_atrium_version_latest", "entity_id": "update.atrium_update"},
+	}
+	if got := pickUpdateEntity(entries, "df84f1fd_atrium"); got != "update.atrium_update" {
+		t.Errorf("picked %q", got)
+	}
+	if got := pickUpdateEntity(entries[:1], "df84f1fd_atrium"); got != "" {
+		t.Errorf("a sensor alone was taken: %q", got)
+	}
+}

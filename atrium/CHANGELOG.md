@@ -3,6 +3,13 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.53
+
+- The "update the Atrium add-on" card shows again. The add-on looked for its update entity by an id that its
+  "newest version" sensor shares, found the sensor first, and so never saw an update waiting.
+- The update status comes with the add-on's hello, which every app connection gets, instead of a request of its
+  own that a slow connection often lost. Add-ons on the writers list may read it (not install it).
+
 ## 0.9.52
 
 - Health says how many app connections are open right now (apps.open): an update restarts the add-on and drops

@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.52"
+const version = "0.9.53"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -143,19 +143,23 @@ type Gateway struct {
 	unavailable  []string
 	updateLatest string
 	updateAsked  time.Time
-	ownerPending bool // Tailscale has not yet said who signed this machine in (see learn)
-	config       house.Config
-	mapping      house.Mapping
-	mappingErr   string              // why the file was refused, if it was (the last good mapping stays in use)
-	mappingAt    time.Time           // the file's modification time last read
-	problems     []string            // what the last render could not use
-	stale        []house.StaleEntity // entities Home Assistant keeps for devices that are gone (listed, never acted on)
-	rooms        int                 // rooms in the last render
-	rendered     bool                // there has been a render (the first one is logged whatever it found)
-	generation   int                 // bumped on every configuration or mapping change
-	house        built
-	houseDefault built // the same without atrium.yaml, for ?layout=default
-	building     singleflight.Group
+	// The last update status and when it was read, for the hello (update.go).
+	updateCache      *UpdateInfo
+	updateCacheAt    time.Time
+	updateRefreshing atomic.Bool
+	ownerPending     bool // Tailscale has not yet said who signed this machine in (see learn)
+	config           house.Config
+	mapping          house.Mapping
+	mappingErr       string              // why the file was refused, if it was (the last good mapping stays in use)
+	mappingAt        time.Time           // the file's modification time last read
+	problems         []string            // what the last render could not use
+	stale            []house.StaleEntity // entities Home Assistant keeps for devices that are gone (listed, never acted on)
+	rooms            int                 // rooms in the last render
+	rendered         bool                // there has been a render (the first one is logged whatever it found)
+	generation       int                 // bumped on every configuration or mapping change
+	house            built
+	houseDefault     built // the same without atrium.yaml, for ?layout=default
+	building         singleflight.Group
 	// The alerts socket (alerts.go): whether it is subscribed now, since when, and how many times it has been.
 	alertsListening bool
 	alertsSince     time.Time
@@ -376,7 +380,8 @@ func (in Ingress) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // writerPath is what a listed add-on may reach: enough to make the layout, nothing of Home Assistant's API.
 func writerPath(p string) bool {
 	switch {
-	case p == "/atrium/hello", p == "/atrium/setup", p == "/atrium/house", p == "/atrium/mapping", p == "/atrium/health", p == "/atrium/digest", p == "/mcp":
+	case p == "/atrium/hello", p == "/atrium/setup", p == "/atrium/house", p == "/atrium/mapping", p == "/atrium/health", p == "/atrium/digest", p == "/mcp",
+		p == "/atrium/update": // to read whether an update is waiting; installing it stays the owner's (serveUpdate)
 		return true
 	case strings.HasPrefix(p, "/atrium/skill/"):
 		return true
@@ -553,6 +558,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, id Identity, bas
 		json.NewEncoder(w).Encode(map[string]any{
 			"atrium": contract, "version": version, "minApp": minApp, "update": app != "" && olderThan(app, minApp), "home": home, "slug": g.Slug,
 			"login": id.Login, "name": id.Name, "device": id.Device, "allowed": ok, "as": g.upstreamFor(id).As, "configures": ok && g.mayConfigure(id),
+			"addonUpdate": g.knownUpdate(), // null until known: the apps' update card, without a second request
 		})
 		return
 	}
@@ -989,6 +995,7 @@ func main() {
 		g.alerts.load()
 		go g.watchAlerts()
 		go g.watchDreams()
+		go func() { time.Sleep(20 * time.Second); g.knownUpdate() }() // the update status, ready for the first hello
 		go func() {
 			home := g.homeName(context.Background())
 			g.alerts.mu.Lock()
@@ -1043,6 +1050,7 @@ func main() {
 	g.onStop(g.saveAppContact) // the last seconds too, not just the last once-a-minute write
 	go g.watchAlerts()
 	go g.watchDreams()
+	go func() { time.Sleep(20 * time.Second); g.knownUpdate() }() // the update status, ready for the first hello
 	go func() {
 		home := g.homeName(context.Background())
 		g.alerts.mu.Lock()

@@ -36,13 +36,15 @@ func (g *Gateway) updateEntity(ctx context.Context) (string, error) {
 	g.mu.Lock()
 	id, asked := g.updateID, g.updateAsked
 	g.mu.Unlock()
-	if id != "" || time.Since(asked) < time.Minute {
+	if id != "" {
 		return id, nil
+	}
+	if time.Since(asked) < time.Minute {
+		return "", fmt.Errorf("Home Assistant has no update entity for %s (looked less than a minute ago)", g.Slug)
 	}
 	if g.Slug == "" {
 		return "", fmt.Errorf("this add-on does not know its slug (no Supervisor)")
 	}
-	want := g.Slug + "_version_latest"
 	var found string
 	err := g.haWS(ctx, func(call func(map[string]any) (any, error)) error {
 		result, err := call(map[string]any{"type": "config/entity_registry/list"})
@@ -50,13 +52,7 @@ func (g *Gateway) updateEntity(ctx context.Context) (string, error) {
 			return err
 		}
 		entries, _ := result.([]any)
-		for _, e := range entries {
-			m, _ := e.(map[string]any)
-			if m["platform"] == "hassio" && m["unique_id"] == want {
-				found, _ = m["entity_id"].(string)
-				return nil
-			}
-		}
+		found = pickUpdateEntity(entries, g.Slug)
 		return nil
 	})
 	g.mu.Lock()
@@ -120,7 +116,7 @@ func (g *Gateway) serveUpdate(w http.ResponseWriter, r *http.Request, id Identit
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(g.updateStatus(r.Context()))
 	case "POST":
-		if !g.mayConfigure(id) {
+		if id.Addon || !g.mayConfigure(id) {
 			http.Error(w, "only the owner and administrators may update Atrium", http.StatusForbidden)
 			return
 		}
@@ -188,4 +184,52 @@ func (g *Gateway) haREST(ctx context.Context, method, path string, body, out any
 		return json.NewDecoder(res.Body).Decode(out)
 	}
 	return nil
+}
+
+// knownUpdate is the last update status, for /atrium/hello: every app connection asks for the hello, on the
+// connection it already has, so the update card no longer depends on a second request that a slow path (a phone
+// relayed by Tailscale) often lost. Refreshed in the background when older than five minutes; nil until known.
+func (g *Gateway) knownUpdate() *UpdateInfo {
+	g.mu.Lock()
+	u, at := g.updateCache, g.updateCacheAt
+	g.mu.Unlock()
+	if time.Since(at) > 5*time.Minute && g.updateRefreshing.CompareAndSwap(false, true) {
+		go func() {
+			defer g.updateRefreshing.Store(false)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			info := g.updateStatus(ctx)
+			g.mu.Lock()
+			g.updateCache, g.updateCacheAt = &info, time.Now()
+			g.mu.Unlock()
+		}()
+	}
+	if u == nil || u.Unavailable != "" {
+		return nil
+	}
+	return u
+}
+
+// pickUpdateEntity finds the add-on's update entity among the registry's entries. Unique ids are unique only within a
+// domain: the add-on's "newest version" sensor carries the same one and comes first in the registry, and only the
+// update entity says whether an update is available. A slug spelled differently (a repository added under another
+// URL) falls back to any hassio update entity whose id ends "_atrium_version_latest".
+func pickUpdateEntity(entries []any, slug string) string {
+	want := slug + "_version_latest"
+	var fallback string
+	for _, e := range entries {
+		m, _ := e.(map[string]any)
+		eid, _ := m["entity_id"].(string)
+		u, _ := m["unique_id"].(string)
+		if m["platform"] != "hassio" || !strings.HasPrefix(eid, "update.") {
+			continue
+		}
+		if u == want {
+			return eid
+		}
+		if fallback == "" && strings.HasSuffix(u, "_atrium_version_latest") {
+			fallback = eid
+		}
+	}
+	return fallback
 }
