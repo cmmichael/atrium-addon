@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAppsHandTheirDiagnosticsToTheAddonAlone(t *testing.T) {
@@ -37,5 +38,18 @@ func TestAppsHandTheirDiagnosticsToTheAddonAlone(t *testing.T) {
 	body := w.Body.String()
 	if w.Code != 200 || !strings.Contains(body, `"login":"guest@example.com"`) || !strings.Contains(body, `"kind":"connected"`) || !strings.Contains(body, `"model":"iPhone17,1"`) {
 		t.Errorf("the owner's GET answered %d %s", w.Code, body)
+	}
+}
+
+func TestALineSentTwiceIsKeptOnce(t *testing.T) {
+	var tm telemetry
+	id := Identity{Login: "owner@example.com", Device: "phone"}
+	at := time.Date(2026, 11, 14, 20, 26, 8, 0, time.UTC)
+	batch := telemetryBatch{Device: "iPhone19,3", Events: []telemetryEvent{{ID: 1, Time: at, Kind: "background"}, {ID: 2, Time: at.Add(time.Second), Kind: "launch"}}}
+	tm.take(id, batch)
+	tm.take(id, batch) // the next run sends them again
+	tm.take(id, telemetryBatch{Device: "iPhone19,3", Events: []telemetryEvent{{ID: 3, Time: at.Add(2 * time.Second), Kind: "connected"}}})
+	if n := len(tm.all()[0].Events); n != 3 {
+		t.Errorf("%d lines kept, want 3", n)
 	}
 }

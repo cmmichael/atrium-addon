@@ -3,6 +3,11 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.54
+
+- A diagnostics line an app sends twice (it was ended after sending, before noting it had gone) is kept and logged
+  once.
+
 ## 0.9.53
 
 - The "update the Atrium add-on" card shows again. The add-on looked for its update entity by an id that its

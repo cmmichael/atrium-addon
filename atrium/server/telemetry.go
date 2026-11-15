@@ -44,6 +44,11 @@ type telemetryDevice struct {
 	Events []telemetryEvent `json:"events"`
 }
 
+type telemetryKey struct {
+	id int
+	at int64
+}
+
 type telemetry struct {
 	mu      sync.Mutex
 	devices map[string]*telemetryDevice
@@ -94,6 +99,20 @@ func (t *telemetry) take(id Identity, b telemetryBatch) {
 		t.devices[key] = d
 	}
 	d.Model, d.OS, d.App, d.Seen = b.Device, b.OS, b.App, time.Now()
+	// A batch can come twice: an app ended after sending it but before noting it had gone sends it again from its
+	// next run. A line already held (same number and time) is dropped, from here and from the log.
+	seen := make(map[telemetryKey]bool, len(d.Events))
+	for _, e := range d.Events {
+		seen[telemetryKey{e.ID, e.Time.UnixNano()}] = true
+	}
+	fresh := b.Events[:0:0]
+	for _, e := range b.Events {
+		if k := (telemetryKey{e.ID, e.Time.UnixNano()}); !seen[k] {
+			seen[k] = true
+			fresh = append(fresh, e)
+		}
+	}
+	b.Events = fresh
 	d.Events = append(d.Events, b.Events...)
 	if len(d.Events) > telemetryKeep {
 		d.Events = d.Events[len(d.Events)-telemetryKeep:]
