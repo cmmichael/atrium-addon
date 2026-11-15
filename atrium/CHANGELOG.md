@@ -3,6 +3,13 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.64
+
+- Speakers: where speakers are placed in rooms, players in no room are not guessed (Music Assistant calls every Mac and television it can play to a speaker), and a Music Assistant player that twins a listed speaker by name is never listed on its own. 0.9.63 listed 23 such players in one home.
+- The layout's home: section is laid over the guess key by key; "none" leaves a key out. One key used to replace the whole guess.
+- A misspelt key inside a widget item, an action or a remote's inputs is refused like one at the top.
+- A tariff without its net meter, and something other than a camera under cameras, get a problem line.
+
 ## 0.9.63
 
 - Speakers by what each player declares: speakers, and receivers that play media; in a home with neither, players placed in a room that play media at a volume (Kodi, Plex, a Chromecast). Music Assistant's players stay unless they mirror a speaker already listed.

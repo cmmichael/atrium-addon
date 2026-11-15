@@ -237,35 +237,60 @@ func newIndex(d Dump, music *MusicMapping) *index {
 			}
 		}
 	}
-	// Music Assistant's players: kept, less those that mirror a player listed already (on the same device, or by
-	// the same name in the same room). Dropping them all whenever another speaker existed lost the players only
-	// Music Assistant knows (AirPlay and Snapcast ones, say).
-	own := map[string]bool{}
-	ownAreas := map[string][]string{} // a listed player's name → the rooms it is in
+	// Music Assistant's players: kept only when they are not a mirror of a player listed already, the way the
+	// music screen pairs them (by device or entity name, less an "MA" suffix), nor on the same device. Music
+	// Assistant calls everything it can play to a speaker, Macs and televisions included, so its class says little.
+	twinKey := func(e ent) []string {
+		var keys []string
+		for _, n := range []string{x.deviceName[e.device], e.name} {
+			n = strings.ToLower(strings.TrimSpace(n))
+			for _, suffix := range []string{" (ma)", " ma", "_ma"} {
+				n = strings.TrimSuffix(n, suffix)
+			}
+			if n != "" {
+				keys = append(keys, n)
+			}
+		}
+		return keys
+	}
+	own, ownNames := map[string]bool{}, map[string]bool{}
 	for _, id := range all {
 		if e := x.byID[id]; e.platform != "music_assistant" {
 			if e.device != "" {
 				own[e.device] = true
 			}
-			n := strings.ToLower(e.name)
-			ownAreas[n] = append(ownAreas[n], firstOf(e.area, x.deviceArea[e.device]))
+			for _, k := range twinKey(e) {
+				ownNames[k] = true
+			}
 		}
 	}
 	mirrors := func(e ent) bool {
 		if e.device != "" && own[e.device] {
 			return true
 		}
-		area := firstOf(e.area, x.deviceArea[e.device])
-		for _, a := range ownAreas[strings.ToLower(e.name)] {
-			if a == "" || area == "" || a == area { // Music Assistant's own device is often in no room
+		for _, k := range twinKey(e) {
+			if ownNames[k] {
 				return true
 			}
 		}
 		return false
 	}
+	placed := func(e ent) bool { return firstOf(e.area, x.deviceArea[e.device]) != "" }
+	anyPlaced := false
+	for _, id := range all {
+		if e := x.byID[id]; placed(e) && !(e.platform == "music_assistant" && mirrors(e)) {
+			anyPlaced = true
+		}
+	}
 	kept := all[:0]
 	for _, id := range all {
-		if e := x.byID[id]; e.platform == "music_assistant" && mirrors(e) {
+		e := x.byID[id]
+		if e.platform == "music_assistant" && mirrors(e) {
+			continue
+		}
+		// Where the owner has placed speakers in rooms, a player in no room is one never organised (a computer, a
+		// television's audio endpoint, a renderer): not guessed.
+		if anyPlaced && !placed(e) {
 			continue
 		}
 		kept = append(kept, id)

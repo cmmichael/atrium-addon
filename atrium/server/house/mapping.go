@@ -1,6 +1,7 @@
 package house
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -77,6 +78,18 @@ type WidgetItemMapping struct {
 	Action  *ActionMapping `yaml:"action,omitempty"`
 }
 
+// decodeStrict decodes a node as the file's own decoder does, refusing keys the type does not have: a node's own
+// Decode would quietly drop them (a misspelt key in a widget item or an action was simply lost).
+func decodeStrict(n *yaml.Node, out any) error {
+	data, err := yaml.Marshal(n)
+	if err != nil {
+		return err
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	return dec.Decode(out)
+}
+
 func (w *WidgetItemMapping) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind == yaml.ScalarNode {
 		switch n.Value {
@@ -88,7 +101,7 @@ func (w *WidgetItemMapping) UnmarshalYAML(n *yaml.Node) error {
 	}
 	type plain WidgetItemMapping
 	var p plain
-	if err := n.Decode(&p); err != nil {
+	if err := decodeStrict(n, &p); err != nil {
 		return err
 	}
 	*w = WidgetItemMapping(p)
@@ -141,7 +154,7 @@ func (in *InputsMapping) UnmarshalYAML(n *yaml.Node) error {
 			return fmt.Errorf("inputs: %q is not an entity id", n.Value)
 		}
 	case yaml.SequenceNode:
-		if err := n.Decode(&in.Options); err != nil {
+		if err := decodeStrict(n, &in.Options); err != nil {
 			return err
 		}
 		for i, o := range in.Options {
@@ -216,7 +229,7 @@ func (a *ActionMapping) UnmarshalYAML(n *yaml.Node) error {
 			Select  string         `yaml:"select"`
 			Option  string         `yaml:"option"`
 		}
-		if err := n.Decode(&m); err != nil {
+		if err := decodeStrict(n, &m); err != nil {
 			return err
 		}
 		*a = ActionMapping{Entity: m.Entity, Service: m.Service, Data: m.Data, Remote: m.Remote, Command: m.Command, Select: m.Select, Option: m.Option}
@@ -357,6 +370,33 @@ type HomeMapping struct {
 	// The conversation agent the apps ask ("Ask the house"): a conversation.* entity. Without it the apps use
 	// Home Assistant's default agent.
 	Ask string `yaml:"ask,omitempty"`
+}
+
+// over lays the file's Home section on the add-on's guess key by key: a key the file sets wins, "none" leaves it
+// out, the rest stay guessed. (A single key used to replace the whole guess.)
+func (h HomeMapping) over(guess HomeMapping) HomeMapping {
+	pick := func(file, auto string) string {
+		switch file {
+		case "":
+			return auto
+		case None:
+			return ""
+		}
+		return file
+	}
+	out := guess
+	out.Weather, out.OutdoorTemperature, out.IndoorTemperature = pick(h.Weather, guess.Weather), pick(h.OutdoorTemperature, guess.OutdoorTemperature), pick(h.IndoorTemperature, guess.IndoorTemperature)
+	out.Alarm, out.Ask = pick(h.Alarm, guess.Alarm), pick(h.Ask, guess.Ask)
+	if len(h.People) > 0 {
+		out.People = h.People
+		if len(h.People) == 1 && h.People[0] == None {
+			out.People = []string{}
+		}
+	}
+	if h.Attention != nil {
+		out.Attention = h.Attention
+	}
+	return out
 }
 
 func (h HomeMapping) set() bool {

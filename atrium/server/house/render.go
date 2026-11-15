@@ -406,10 +406,7 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 	h.Scenes = append(h.Scenes, rest...)
 
 	// MARK: The custom screens — the file's section where there is one, else the add-on's own guess
-	home := m.Home
-	if !home.set() {
-		home = x.autoHome()
-	}
+	home := m.Home.over(x.autoHome())
 	security, energy, music := m.Security, m.Energy, m.Music
 	if security == nil {
 		if a := x.autoSecurity(); a.any() {
@@ -444,6 +441,13 @@ func Render(m Mapping, d Dump, c Config) (House, []string) {
 	tab := func(name string) bool { v, ok := c.Tabs[name]; return !ok || v }
 	if s := security; s != nil && tab("security") {
 		fromFile = m.Security != nil
+		if m.Security != nil {
+			for _, id := range concat(s.Cameras, s.Doorbells) {
+				if domain(id) != "camera" {
+					problem("security: %s is listed as a camera but is not one", id)
+				}
+			}
+		}
 		h.Security.Cameras = visible("security", s.Cameras)
 		h.Security.Doorbells = visible("security", s.Doorbells)
 		for _, cam := range h.Security.Doorbells { // the ring behind each doorbell camera: the file's, else the device's

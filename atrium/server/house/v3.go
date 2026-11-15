@@ -578,6 +578,9 @@ func renderV3(m Mapping, h *House, d Dump, exists func(where, id string) string,
 
 	if m.Energy != nil && m.Energy.Tariff != nil {
 		tm := m.Energy.Tariff
+		if tm.Net == "" {
+			problem("tariff: no net meter, so the bill cannot be worked out (energy.tariff.net)")
+		}
 		if net := exists("tariff", tm.Net); net != "" {
 			t := &Tariff{Net: net, Delivered: exists("tariff", tm.Delivered), Received: exists("tariff", tm.Received), PeriodDays: tm.PeriodDays, PeriodStart: tm.PeriodStart,
 				Fixed: tm.Fixed, Tax: tm.Tax, Currency: tm.Currency, Estimate: tm.Estimate, Tiers: []Tier{}}
