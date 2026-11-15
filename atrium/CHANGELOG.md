@@ -3,6 +3,11 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.71
+
+- A phone often opens two connections at once and drops the slower one. A TLS handshake dropped within 3 seconds of a completed one from the same address is now logged as raced and no longer counted in `/atrium/health`'s `handshakesDied`, so that count means real failures.
+- Each dropped handshake is logged with the name the phone asked for, or "no hello" when it gave up before saying.
+
 ## 0.9.70
 
 - When a release adds or changes AI Assist's tools from this add-on, the add-on reloads Home Assistant's connection to them by itself (once, a minute after it starts), so the agent sees the new tools without a manual reload.

@@ -44,7 +44,7 @@ import (
 	"tailscale.com/tsnet"
 )
 
-const version = "0.9.70"
+const version = "0.9.71"
 
 // The contract: the shape of house.json and of /atrium/*. Bumped only when an older app could no longer read what
 // this add-on serves (adding an optional field never bumps it). The app knows which contracts it reads.
@@ -1353,7 +1353,7 @@ func main() {
 	g.mu.Lock()
 	scheme = "http"
 	g.mu.Unlock()
-	if secure, err := listenTLS(srv, status); err == nil {
+	if secure, err := listenTLS(srv, status, &g.tls); err == nil {
 		go serve(secure, "https")
 		g.mu.Lock()
 		scheme = "https"
@@ -1369,8 +1369,8 @@ func main() {
 }
 
 // listenTLS is tsnet's ListenTLS with each connection's address kept (keepAddr), so a handshake the phone abandons
-// is logged with the address it came from rather than "%!s(<nil>)".
-func listenTLS(srv *tsnet.Server, st *ipnstate.Status) (net.Listener, error) {
+// is logged with the address it came from rather than "%!s(<nil>)", and with each handshake watched by h.
+func listenTLS(srv *tsnet.Server, st *ipnstate.Status, h *handshakes) (net.Listener, error) {
 	if !st.CurrentTailnet.MagicDNSEnabled || len(st.CertDomains) == 0 {
 		return srv.ListenTLS("tcp", ":443") // and its explanation of what to turn on
 	}
@@ -1382,7 +1382,7 @@ func listenTLS(srv *tsnet.Server, st *ipnstate.Status) (net.Listener, error) {
 	if err != nil {
 		return nil, err
 	}
-	return tls.NewListener(keepAddr{ln}, &tls.Config{GetCertificate: lc.GetCertificate}), nil
+	return tls.NewListener(keepAddr{ln}, h.config(lc.GetCertificate)), nil
 }
 
 // keepAddr remembers each connection's remote address when it is accepted: a tailnet connection that the far side
