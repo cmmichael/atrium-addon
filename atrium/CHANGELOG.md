@@ -3,6 +3,10 @@
 Home Assistant shows this file on the add-on's Changelog tab and before an update. Newest first; one entry per
 release of the add-on. Earlier releases (0.9.0 and before) are in the source repository's git history.
 
+## 0.9.56
+
+- No changes: a release to try the app's update screen.
+
 ## 0.9.55
 
 - Shorter wording throughout the web app and the set-up page.
